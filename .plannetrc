@@ -1,1 +1,8 @@
-project_name = "cool"
+{
+    "base_url": "http://localhost:1234/v1/completions",
+    "model": "oh-dcft-v3.1-claude-3-5-haiku-20241022",
+    "system_prompt": "You are a helpful assistant that creates user stories and tickets. Always format your response as a complete ticket with Story, Description, and Acceptance Criteria sections. Do not include any other text, explanations, or markdown formatting.",
+    "headers": {
+        "Authorization": "Bearer your-token-here"
+    }
+}
