@@ -4,21 +4,24 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
+	"sync"
 
 	"github.com/fatih/color"
 )
 
 // OutputManager handles displaying and copying output
 type OutputManager struct {
-	useColors bool
-	config    *Config
+	useColors   bool
+	config      *Config
+	sessionCopy *bool      // Stores session preference for AskOnce
+	sessionLock sync.Mutex // Ensures safe concurrent access
 }
 
 // NewOutputManager creates a new OutputManager instance
-func NewOutputManager(useColors bool) *OutputManager {
+func NewOutputManager(useColors bool, config *Config) *OutputManager {
 	return &OutputManager{
 		useColors: useColors,
+		config:    config,
 	}
 }
 
@@ -29,24 +32,45 @@ func (outputManager *OutputManager) HandleOutput(output string) error {
 		return fmt.Errorf("failed to display output: %w", err)
 	}
 
-	// get alwaysCopy from config and return early
-	// if outputManager.config.alwaysCopy {
-	// 	if err := outputManager.copyToClipboard(output); err != nil {
-	// 		return fmt.Errorf("failed to copy to clipboard: %w", err)
-	// 	}
-	// 	outputManager.showCopyConfirmation()
-	// 	return nil
-	// }
-
-	// Ask about clipboard copy
-	if shouldCopy := outputManager.promptForCopy(); shouldCopy {
+	if shouldCopy := outputManager.shouldCopyBasedOnPreference(); shouldCopy {
 		if err := outputManager.copyToClipboard(output); err != nil {
 			return fmt.Errorf("failed to copy to clipboard: %w", err)
 		}
 		outputManager.showCopyConfirmation()
 	}
-
 	return nil
+}
+
+// shouldCopyBasedOnPreference determines whether to copy based on CopyPreference
+func (outputManager *OutputManager) shouldCopyBasedOnPreference() bool {
+	switch outputManager.config.CopyPreference {
+	case AskOnce:
+		return outputManager.shouldCopyForSession()
+	case CopyAutomatically:
+		return true
+	case DoNotCopy:
+		return false
+	case AskEveryTime:
+		fallthrough
+	default:
+		return outputManager.promptForCopy() // Fallback to asking every time
+	}
+}
+
+// shouldCopyForSession ensures "AskOnce" prompts only once per execution
+func (outputManager *OutputManager) shouldCopyForSession() bool {
+	outputManager.sessionLock.Lock()
+	defer outputManager.sessionLock.Unlock()
+
+	// If already set, return stored session choice
+	if outputManager.sessionCopy != nil {
+		return *outputManager.sessionCopy
+	}
+
+	// Otherwise, prompt the user and store the choice for the session
+	shouldCopy := outputManager.shouldCopyBasedOnPreference()
+	outputManager.sessionCopy = &shouldCopy
+	return shouldCopy
 }
 
 // displayOutput shows the generated output with optional formatting
@@ -67,7 +91,6 @@ func (outputManager *OutputManager) displayOutput(output string) error {
 	return nil
 }
 
-// promptForCopy asks the user if they want to copy the output
 func (outputManager *OutputManager) promptForCopy() bool {
 	var response string
 	prompt := "Copy to clipboard? [y/n]: "
@@ -109,12 +132,10 @@ func (outputManager *OutputManager) copyToClipboard(text string) error {
 
 // showCopyConfirmation displays a confirmation message about successful copying
 func (outputManager *OutputManager) showCopyConfirmation() {
-	message := "Copied to clipboard!"
+	message := "\n✓ Copied to clipboard!"
 
 	if outputManager.useColors {
 		// Show an animated confirmation
-		color.Green("\n✓ ")
-		time.Sleep(100 * time.Millisecond)
 		color.Green(message)
 	} else {
 		fmt.Printf("\n%s\n", message)
@@ -122,7 +143,7 @@ func (outputManager *OutputManager) showCopyConfirmation() {
 }
 
 // Convenience function for simple output handling
-func handleOutput(output string) error {
-	manager := NewOutputManager(true) // Enable colors by default
+func handleOutput(output string, config *Config) error {
+	manager := NewOutputManager(true, config) // Enable colors by default
 	return manager.HandleOutput(output)
 }

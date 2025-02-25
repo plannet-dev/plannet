@@ -2,32 +2,101 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 )
 
+// CopyPreference represents user preferences for copy behavior.
+type CopyPreference struct {
+	value string
+}
+
+// Predefined CopyPreferences (Strongly Typed)
+var (
+	AskEveryTime      = CopyPreference{"ask-every-time"}     // Always prompt before copying
+	AskOnce           = CopyPreference{"ask-once"}           // Ask once per session
+	CopyAutomatically = CopyPreference{"copy-automatically"} // Always copy without prompting
+	DoNotCopy         = CopyPreference{"do-not-copy"}        // Never copy
+)
+
+// AllowedValues returns all valid enum options.
+func AllowedValues() []CopyPreference {
+	return []CopyPreference{AskEveryTime, AskOnce, CopyAutomatically, DoNotCopy}
+}
+
+// IsValid checks if the CopyPreference is valid.
+func (c CopyPreference) IsValid() bool {
+	for _, v := range AllowedValues() {
+		if c == v {
+			return true
+		}
+	}
+	return false
+}
+
+// Default returns the recommended default value.
+func DefaultCopyPreference() CopyPreference {
+	return AskEveryTime
+}
+
+// String returns the string representation.
+func (c CopyPreference) String() string {
+	return c.value
+}
+
+// ParseCopyPreference safely converts a string to a CopyPreference.
+func ParseCopyPreference(s string) (CopyPreference, error) {
+	for _, v := range AllowedValues() {
+		if v.value == s {
+			return v, nil
+		}
+	}
+	return CopyPreference{}, errors.New("invalid copy preference")
+}
+
+// JSON Serialization Support
+func (c CopyPreference) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.value)
+}
+
+func (c *CopyPreference) UnmarshalJSON(data []byte) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	parsed, err := ParseCopyPreference(s)
+	if err != nil {
+		return err
+	}
+	*c = parsed
+	return nil
+}
+
 // Config represents the application configuration
 type Config struct {
 	// LLM Configuration
-	BaseURL      string            `json:"base_url"`
+	BaseURL      string            `json:"base-url"`
 	Model        string            `json:"model"`
-	SystemPrompt string            `json:"system_prompt"`
+	SystemPrompt string            `json:"system-prompt"`
 	Headers      map[string]string `json:"headers"`
 
 	// Jira Configuration (all optional)
-	JiraURL   string `json:"jira_url,omitempty"`
-	JiraToken string `json:"jira_token,omitempty"`
-	JiraUser  string `json:"jira_user,omitempty"`
+	JiraURL   string `json:"jira-url,omitempty"`
+	JiraToken string `json:"jira-token,omitempty"`
+	JiraUser  string `json:"jira-user,omitempty"`
 
-	// User Preferences for copying go here
+	// User Preferences for copying
+	CopyPreference CopyPreference `json:"copy-preference"`
 }
 
 // DefaultConfig returns a configuration with default values
 func DefaultConfig() *Config {
 	return &Config{
-		BaseURL: "http://localhost:1234/v1/completions",
-		Headers: make(map[string]string),
+		BaseURL:        "http://localhost:1234/v1/completions",
+		Headers:        make(map[string]string),
+		CopyPreference: DefaultCopyPreference(), // Set default copy behavior
 	}
 }
 
@@ -105,6 +174,11 @@ func (c *Config) Validate() error {
 		if c.JiraUser == "" {
 			return fmt.Errorf("jira_user is required when using Jira integration")
 		}
+	}
+
+	// Validate CopyPreference
+	if !c.CopyPreference.IsValid() {
+		return fmt.Errorf("invalid copy_preference: %s", c.CopyPreference)
 	}
 
 	return nil

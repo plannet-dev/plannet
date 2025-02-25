@@ -30,7 +30,7 @@ func (app *App) Run(customPrompt string) error {
 		return err
 	}
 
-	if err := handleOutput(output); err != nil {
+	if err := handleOutput(output, app.config); err != nil {
 		return err
 	}
 

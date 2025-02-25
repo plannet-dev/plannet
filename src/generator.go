@@ -130,6 +130,8 @@ func (generator *Generator) makeRequest(reqBody LLMRequest) (*LLMResponse, error
 		return nil, fmt.Errorf("error parsing response: %w", err)
 	}
 
+	fmt.Printf("%+v\n", llmResp)
+
 	return &llmResp, nil
 }
 
