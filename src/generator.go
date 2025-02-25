@@ -83,7 +83,7 @@ func (generator *Generator) formatPrompt(userPrompt string) string {
 	}
 
 	// Add user message
-	prompt += headerUser + userPrompt + eotId + headerAssistant + "\n"
+	prompt += headerUser + "Respond only with an example ticket. Don't include an ID or number. Create a ticket for" + userPrompt + eotId + headerAssistant + "\n"
 
 	return prompt
 }
