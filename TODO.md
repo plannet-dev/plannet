@@ -1,0 +1,2 @@
+- list assigned tickets
+- summarize work from yesterday for the standup

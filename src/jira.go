@@ -105,7 +105,7 @@ func (j *JiraClient) FetchTickets() ([]JiraIssue, error) {
 
 	// Check status code
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jira API returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("jira API returned status: %d", resp.StatusCode)
 	}
 
 	// Parse response
@@ -178,7 +178,7 @@ func (j *JiraClient) GetTicketDetails(key string) (*JiraIssue, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Jira API returned status: %d", resp.StatusCode)
+		return nil, fmt.Errorf("jira API returned status: %d", resp.StatusCode)
 	}
 
 	var issue JiraIssue
