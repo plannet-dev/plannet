@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/plannet-ai/plannet/config"
 )
 
 // listCmd represents the list command
@@ -19,7 +19,7 @@ var listCmd = &cobra.Command{
 	Long: `List tracked work, showing both git-based and manually tracked work.
 This command gives you a comprehensive view of your work history.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		runList()
+		runList(args)
 	},
 }
 
@@ -27,9 +27,9 @@ func init() {
 	rootCmd.AddCommand(listCmd)
 }
 
-func runList() {
+func runList(args []string) {
 	// Load configuration
-	cfg, err := config.Load()
+	_, err := config.Load()
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		fmt.Println("Run 'plannet init' to set up your configuration.")

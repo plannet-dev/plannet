@@ -79,9 +79,8 @@ func runInit() {
 	fmt.Println("Let's set up how Plannet identifies tickets in your work.")
 	
 	prefixPrompt := promptui.Prompt{
-		Label:     "Enter ticket prefixes (comma-separated, e.g., JIRA-, DEV-, TICKET-)",
-		Default:   "JIRA-",
-		AllowEmpty: false,
+		Label:   "Enter ticket prefixes (comma-separated, e.g., JIRA-, DEV-, TICKET-)",
+		Default: "JIRA-",
 	}
 
 	prefixesStr, err := prefixPrompt.Run()
@@ -99,9 +98,8 @@ func runInit() {
 
 	// Ask for preferred editor
 	editorPrompt := promptui.Prompt{
-		Label:     "What editor do you use for manual edits?",
-		Default:   "vim",
-		AllowEmpty: false,
+		Label:   "What editor do you use for manual edits?",
+		Default: "vim",
 	}
 
 	editor, err := editorPrompt.Run()
@@ -159,9 +157,8 @@ func runInit() {
 			fmt.Println("Visit https://plannet.dev/console to get your API key.")
 			
 			apiKeyPrompt := promptui.Prompt{
-				Label:     "Enter your Plannet API key",
-				Mask:      '*',
-				AllowEmpty: false,
+				Label: "Enter your Plannet API key",
+				Mask:  '*',
 			}
 
 			apiKey, err := apiKeyPrompt.Run()
@@ -177,9 +174,8 @@ func runInit() {
 		} else {
 			// Ask for custom LLM API endpoint
 			baseURLPrompt := promptui.Prompt{
-				Label:     "Enter your LLM API endpoint",
-				Default:   "http://localhost:1234/v1/completions",
-				AllowEmpty: false,
+				Label:   "Enter your LLM API endpoint",
+				Default: "http://localhost:1234/v1/completions",
 			}
 
 			baseURL, err := baseURLPrompt.Run()
@@ -191,9 +187,8 @@ func runInit() {
 
 			// Ask for model name
 			modelPrompt := promptui.Prompt{
-				Label:     "Enter model name",
-				Default:   "gpt-3.5-turbo",
-				AllowEmpty: false,
+				Label:   "Enter model name",
+				Default: "gpt-3.5-turbo",
 			}
 
 			model, err := modelPrompt.Run()
@@ -205,9 +200,8 @@ func runInit() {
 
 			// Ask for API key
 			apiKeyPrompt := promptui.Prompt{
-				Label:     "Enter your API key",
-				Mask:      '*',
-				AllowEmpty: false,
+				Label: "Enter your API key",
+				Mask:  '*',
 			}
 
 			apiKey, err := apiKeyPrompt.Run()
@@ -224,8 +218,7 @@ func runInit() {
 
 		// Optional system prompt
 		systemPromptPrompt := promptui.Prompt{
-			Label:     "Enter system prompt (optional)",
-			AllowEmpty: true,
+			Label: "Enter system prompt (optional)",
 		}
 
 		systemPrompt, err := systemPromptPrompt.Run()
@@ -254,9 +247,8 @@ func runInit() {
 	if jiraResult == "Yes" {
 		// Ask for Jira URL
 		jiraURLPrompt := promptui.Prompt{
-			Label:     "Enter your Jira instance URL",
-			Default:   "https://your-instance.atlassian.net",
-			AllowEmpty: false,
+			Label:   "Enter your Jira instance URL",
+			Default: "https://your-instance.atlassian.net",
 		}
 
 		jiraURL, err := jiraURLPrompt.Run()
@@ -268,8 +260,7 @@ func runInit() {
 
 		// Ask for Jira username/email
 		jiraUserPrompt := promptui.Prompt{
-			Label:     "Enter your Jira username/email",
-			AllowEmpty: false,
+			Label: "Enter your Jira username/email",
 		}
 
 		jiraUser, err := jiraUserPrompt.Run()
@@ -284,9 +275,8 @@ func runInit() {
 		fmt.Println("Visit https://id.atlassian.com/manage-profile/security/api-tokens to create one.")
 		
 		jiraTokenPrompt := promptui.Prompt{
-			Label:     "Enter your Jira API token",
-			Mask:      '*',
-			AllowEmpty: false,
+			Label: "Enter your Jira API token",
+			Mask:  '*',
 		}
 
 		jiraToken, err := jiraTokenPrompt.Run()

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -102,8 +103,9 @@ func runLLMInteractive() {
 	for {
 		// Prompt for user input
 		fmt.Print("You: ")
-		input, err := os.Stdin.ReadString('\n')
-		if err != nil {
+		reader := bufio.NewReader(os.Stdin)
+		input, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
 			fmt.Println("Error reading input:", err)
 			return
 		}

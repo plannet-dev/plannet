@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,19 +134,18 @@ func getCommitsSince(dir string, since string) ([]Commit, error) {
 			hash := parts[0]
 			message := parts[1]
 			
-			var time time.Time
+			var commitTime time.Time
 			if len(parts) >= 3 {
 				timestamp := parts[2]
-				unixTime, err := time.Parse("1234567890", timestamp)
-				if err == nil {
-					time = time.Unix(unixTime.Unix(), 0)
+				if unixSeconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
+					commitTime = time.Unix(unixSeconds, 0)
 				}
 			}
 
 			commits = append(commits, Commit{
 				Hash:    hash,
 				Message: message,
-				Time:    time,
+				Time:    commitTime,
 			})
 		}
 	}
@@ -263,4 +263,27 @@ func getFilesChanged(hash string) ([]string, error) {
 	
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	return lines, nil
+}
+
+func parseTime(timeStr string) (time.Time, error) {
+	// Try parsing with different formats
+	formats := []string{
+		"2006-01-02 15:04:05",
+		"2006-01-02 15:04",
+		time.RFC3339,
+		time.RFC1123,
+	}
+
+	for _, format := range formats {
+		if t, err := time.Parse(format, timeStr); err == nil {
+			return t, nil
+		}
+	}
+
+	// If all formats fail, try parsing as Unix timestamp
+	if unixTime, err := strconv.ParseInt(timeStr, 10, 64); err == nil {
+		return time.Unix(unixTime, 0), nil
+	}
+
+	return time.Time{}, fmt.Errorf("could not parse time: %s", timeStr)
 } 

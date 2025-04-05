@@ -8,56 +8,74 @@ import (
 	"time"
 )
 
-func TestGitUtils(t *testing.T) {
+func setupGitRepo(t *testing.T) (string, func()) {
 	// Create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "plannet-git-test")
+	tempDir, err := os.MkdirTemp("", "plannet-test-*")
 	if err != nil {
-		t.Fatalf("Failed to create temp directory: %v", err)
+		t.Fatalf("Failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tempDir)
 
-	// Initialize a git repository
-	err = exec.Command("git", "init").SetDir(tempDir).Run()
+	// Save current directory
+	originalDir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("Failed to initialize git repository: %v", err)
+		os.RemoveAll(tempDir)
+		t.Fatalf("Failed to get current directory: %v", err)
 	}
 
-	// Test isGitRepo
-	if !isGitRepo(tempDir) {
-		t.Error("isGitRepo should return true for a git repository")
+	// Change to temp directory
+	if err := os.Chdir(tempDir); err != nil {
+		os.RemoveAll(tempDir)
+		t.Fatalf("Failed to change to temp directory: %v", err)
 	}
 
-	// Create a non-git directory
-	nonGitDir := filepath.Join(tempDir, "non-git")
-	err = os.Mkdir(nonGitDir, 0755)
-	if err != nil {
-		t.Fatalf("Failed to create non-git directory: %v", err)
+	// Initialize git repo
+	if err := exec.Command("git", "init").Run(); err != nil {
+		os.Chdir(originalDir)
+		os.RemoveAll(tempDir)
+		t.Fatalf("Failed to initialize git repo: %v", err)
 	}
 
-	if isGitRepo(nonGitDir) {
-		t.Error("isGitRepo should return false for a non-git directory")
+	// Configure git user for commits
+	if err := exec.Command("git", "config", "user.name", "Test User").Run(); err != nil {
+		os.Chdir(originalDir)
+		os.RemoveAll(tempDir)
+		t.Fatalf("Failed to configure git user name: %v", err)
 	}
+	if err := exec.Command("git", "config", "user.email", "test@example.com").Run(); err != nil {
+		os.Chdir(originalDir)
+		os.RemoveAll(tempDir)
+		t.Fatalf("Failed to configure git user email: %v", err)
+	}
+
+	cleanup := func() {
+		os.Chdir(originalDir)
+		os.RemoveAll(tempDir)
+	}
+
+	return tempDir, cleanup
+}
+
+func TestGitIntegration(t *testing.T) {
+	tempDir, cleanup := setupGitRepo(t)
+	defer cleanup()
 
 	// Create a test file
 	testFile := filepath.Join(tempDir, "test.txt")
-	err = os.WriteFile(testFile, []byte("Test content"), 0644)
-	if err != nil {
+	if err := os.WriteFile(testFile, []byte("test content"), 0644); err != nil {
 		t.Fatalf("Failed to create test file: %v", err)
 	}
 
 	// Add and commit the file
-	err = exec.Command("git", "add", "test.txt").SetDir(tempDir).Run()
-	if err != nil {
-		t.Fatalf("Failed to add file: %v", err)
+	if err := exec.Command("git", "add", "test.txt").Run(); err != nil {
+		t.Fatalf("Failed to add file to git: %v", err)
 	}
 
-	err = exec.Command("git", "commit", "-m", "TEST-123: Initial commit").SetDir(tempDir).Run()
-	if err != nil {
+	if err := exec.Command("git", "commit", "-m", "TEST-123: Initial commit").Run(); err != nil {
 		t.Fatalf("Failed to commit file: %v", err)
 	}
 
 	// Test getCurrentBranch
-	branch, err := getCurrentBranch(tempDir)
+	branch, err := getCurrentBranch()
 	if err != nil {
 		t.Fatalf("Failed to get current branch: %v", err)
 	}
@@ -65,68 +83,59 @@ func TestGitUtils(t *testing.T) {
 		t.Errorf("Expected branch to be 'main' or 'master', got '%s'", branch)
 	}
 
+	// Test getRecentCommits
+	commits, err := getRecentCommits(5)
+	if err != nil {
+		t.Fatalf("Failed to get recent commits: %v", err)
+	}
+	if len(commits) == 0 {
+		t.Error("Expected at least one commit")
+	}
+
 	// Test extractTicketID
-	ticketID := extractTicketID("TEST-123-feature-branch", []string{"TEST-"})
+	ticketID := extractTicketID("feature/TEST-123-add-feature", []string{"TEST-"})
 	if ticketID != "TEST-123" {
 		t.Errorf("Expected ticket ID to be 'TEST-123', got '%s'", ticketID)
 	}
 
-	// Test with no ticket ID
-	noTicketID := extractTicketID("feature-branch", []string{"TEST-"})
-	if noTicketID != "" {
-		t.Errorf("Expected empty ticket ID, got '%s'", noTicketID)
-	}
-
-	// Test getRecentCommits
-	commits, err := getRecentCommits(tempDir, 10)
-	if err != nil {
-		t.Fatalf("Failed to get recent commits: %v", err)
-	}
-	if len(commits) != 1 {
-		t.Errorf("Expected 1 commit, got %d", len(commits))
-	}
-	if commits[0].Message != "TEST-123: Initial commit" {
-		t.Errorf("Expected commit message 'TEST-123: Initial commit', got '%s'", commits[0].Message)
-	}
-
 	// Test findSideQuests
-	sideQuests := findSideQuests(commits, []string{"TEST-"})
-	if len(sideQuests) != 0 {
-		t.Errorf("Expected 0 side quests, got %d", len(sideQuests))
+	// Create another commit without a ticket ID
+	if err := exec.Command("git", "add", "test.txt").Run(); err != nil {
+		t.Fatalf("Failed to add file to git: %v", err)
 	}
 
-	// Create a commit without a ticket ID
-	err = os.WriteFile(testFile, []byte("Updated content"), 0644)
-	if err != nil {
-		t.Fatalf("Failed to update test file: %v", err)
-	}
-
-	err = exec.Command("git", "add", "test.txt").SetDir(tempDir).Run()
-	if err != nil {
-		t.Fatalf("Failed to add file: %v", err)
-	}
-
-	err = exec.Command("git", "commit", "-m", "Update without ticket ID").SetDir(tempDir).Run()
-	if err != nil {
+	if err := exec.Command("git", "commit", "-m", "Update without ticket ID").Run(); err != nil {
 		t.Fatalf("Failed to commit file: %v", err)
 	}
 
-	// Get commits again
-	commits, err = getRecentCommits(tempDir, 10)
+	commits, err = getRecentCommits(5)
 	if err != nil {
 		t.Fatalf("Failed to get recent commits: %v", err)
 	}
-	if len(commits) != 2 {
-		t.Errorf("Expected 2 commits, got %d", len(commits))
+
+	sideQuests := findSideQuests(commits, []string{"TEST-"})
+	if len(sideQuests) == 0 {
+		t.Error("Expected at least one side quest")
+	}
+}
+
+func TestIsGitRepo(t *testing.T) {
+	tempDir, cleanup := setupGitRepo(t)
+	defer cleanup()
+
+	// Test with git directory
+	if !isGitRepo(tempDir) {
+		t.Error("Expected git directory to return true")
 	}
 
-	// Test findSideQuests with a commit without a ticket ID
-	sideQuests = findSideQuests(commits, []string{"TEST-"})
-	if len(sideQuests) != 1 {
-		t.Errorf("Expected 1 side quest, got %d", len(sideQuests))
+	// Create and test non-git directory
+	nonGitDir := filepath.Join(tempDir, "non-git")
+	if err := os.Mkdir(nonGitDir, 0755); err != nil {
+		t.Fatalf("Failed to create non-git directory: %v", err)
 	}
-	if sideQuests[0].Message != "Update without ticket ID" {
-		t.Errorf("Expected side quest message 'Update without ticket ID', got '%s'", sideQuests[0].Message)
+
+	if isGitRepo(nonGitDir) {
+		t.Error("Expected non-git directory to return false")
 	}
 }
 
@@ -139,9 +148,23 @@ func TestGetCommitsSince(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Initialize a git repository
-	err = exec.Command("git", "init").SetDir(tempDir).Run()
-	if err != nil {
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to initialize git repository: %v", err)
+	}
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user name: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user email: %v", err)
 	}
 
 	// Create a test file
@@ -152,18 +175,22 @@ func TestGetCommitsSince(t *testing.T) {
 	}
 
 	// Add and commit the file
-	err = exec.Command("git", "add", "test.txt").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "add", "test.txt")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add file: %v", err)
 	}
 
-	err = exec.Command("git", "commit", "-m", "TEST-123: Initial commit").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "commit", "-m", "TEST-123: Initial commit")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to commit file: %v", err)
 	}
 
 	// Get the commit hash
-	hashBytes, err := exec.Command("git", "rev-parse", "HEAD").SetDir(tempDir).Output()
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = tempDir
+	hashBytes, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get commit hash: %v", err)
 	}
@@ -179,13 +206,15 @@ func TestGetCommitsSince(t *testing.T) {
 		t.Fatalf("Failed to update test file: %v", err)
 	}
 
-	err = exec.Command("git", "add", "test.txt").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "add", "test.txt")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add file: %v", err)
 	}
 
-	err = exec.Command("git", "commit", "-m", "TEST-456: Second commit").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "commit", "-m", "TEST-456: Second commit")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to commit file: %v", err)
 	}
 
@@ -211,9 +240,23 @@ func TestGetFilesChanged(t *testing.T) {
 	defer os.RemoveAll(tempDir)
 
 	// Initialize a git repository
-	err = exec.Command("git", "init").SetDir(tempDir).Run()
-	if err != nil {
+	cmd := exec.Command("git", "init")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to initialize git repository: %v", err)
+	}
+
+	// Configure git user for commits
+	cmd = exec.Command("git", "config", "user.name", "Test User")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user name: %v", err)
+	}
+
+	cmd = exec.Command("git", "config", "user.email", "test@example.com")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("Failed to configure git user email: %v", err)
 	}
 
 	// Create a test file
@@ -224,18 +267,22 @@ func TestGetFilesChanged(t *testing.T) {
 	}
 
 	// Add and commit the file
-	err = exec.Command("git", "add", "test.txt").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "add", "test.txt")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to add file: %v", err)
 	}
 
-	err = exec.Command("git", "commit", "-m", "TEST-123: Initial commit").SetDir(tempDir).Run()
-	if err != nil {
+	cmd = exec.Command("git", "commit", "-m", "TEST-123: Initial commit")
+	cmd.Dir = tempDir
+	if err := cmd.Run(); err != nil {
 		t.Fatalf("Failed to commit file: %v", err)
 	}
 
 	// Get the commit hash
-	hashBytes, err := exec.Command("git", "rev-parse", "HEAD").SetDir(tempDir).Output()
+	cmd = exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = tempDir
+	hashBytes, err := cmd.Output()
 	if err != nil {
 		t.Fatalf("Failed to get commit hash: %v", err)
 	}

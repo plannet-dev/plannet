@@ -3,10 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
 
-	"github.com/plannet-ai/plannet/config"
 	"github.com/spf13/cobra"
+	"github.com/plannet-ai/plannet/config"
 )
 
 // nowCmd represents the now command

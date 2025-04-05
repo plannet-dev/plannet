@@ -29,6 +29,13 @@ type TrackedWork struct {
 	} `json:"context,omitempty"`
 }
 
+// Context represents the git context of tracked work
+type Context struct {
+	Branch     string   `json:"branch,omitempty"`
+	Files      []string `json:"files,omitempty"`
+	CommitHash string   `json:"commit_hash,omitempty"`
+}
+
 // trackCmd represents the track command
 var trackCmd = &cobra.Command{
 	Use:   "track [description]",
@@ -163,11 +170,7 @@ func runTrack(args []string) {
 	}
 
 	// Get context if in git repo
-	var context struct {
-		Branch     string
-		Files      []string
-		CommitHash string
-	}
+	var context Context
 	if cfg.GitIntegration {
 		if branch, err := getCurrentBranch(); err == nil {
 			context.Branch = branch

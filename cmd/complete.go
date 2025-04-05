@@ -1,14 +1,13 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
+	"github.com/plannet-ai/plannet/config"
 )
 
 // completeCmd represents the complete command
@@ -29,7 +28,7 @@ func init() {
 
 func runComplete(args []string) {
 	// Load configuration
-	cfg, err := config.Load()
+	_, err := config.Load()
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		fmt.Println("Run 'plannet init' to set up your configuration.")

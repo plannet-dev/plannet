@@ -1,11 +1,11 @@
 package cmd
 
 import (
-	"os"
+	"fmt"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
-	"fmt"
 )
 
 // Commit represents a git commit
@@ -70,19 +70,18 @@ func getRecentCommits(count int) ([]Commit, error) {
 			hash := parts[0]
 			message := parts[1]
 			
-			var time time.Time
+			var commitTime time.Time
 			if len(parts) >= 3 {
 				timestamp := parts[2]
-				unixTime, err := time.Parse("1234567890", timestamp)
-				if err == nil {
-					time = time.Unix(unixTime.Unix(), 0)
+				if unixSeconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
+					commitTime = time.Unix(unixSeconds, 0)
 				}
 			}
 
 			commits = append(commits, Commit{
 				Hash:    hash,
 				Message: message,
-				Time:    time,
+				Time:    commitTime,
 			})
 		}
 	}
@@ -109,4 +108,60 @@ func findSideQuests(commits []Commit, prefixes []string) []Commit {
 	}
 	
 	return sideQuests
+}
+
+// getFilesChanged gets the list of files changed since a specific commit
+func getFilesChanged(dir string, commitHash string) ([]string, error) {
+	cmd := exec.Command("git", "diff", "--name-only", commitHash)
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	files := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(files) == 1 && files[0] == "" {
+		return []string{}, nil
+	}
+	return files, nil
+}
+
+// getCommitsSince gets all commits since a specific commit
+func getCommitsSince(dir string, commitHash string) ([]Commit, error) {
+	cmd := exec.Command("git", "log", fmt.Sprintf("%s..HEAD", commitHash), "--format=%H|%s|%ct")
+	cmd.Dir = dir
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return []Commit{}, nil
+	}
+
+	commits := make([]Commit, 0, len(lines))
+	for _, line := range lines {
+		parts := strings.Split(line, "|")
+		if len(parts) >= 2 {
+			hash := parts[0]
+			message := parts[1]
+			
+			var commitTime time.Time
+			if len(parts) >= 3 {
+				timestamp := parts[2]
+				if unixSeconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
+					commitTime = time.Unix(unixSeconds, 0)
+				}
+			}
+
+			commits = append(commits, Commit{
+				Hash:    hash,
+				Message: message,
+				Time:    commitTime,
+			})
+		}
+	}
+
+	return commits, nil
 } 

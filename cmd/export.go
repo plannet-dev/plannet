@@ -5,11 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/plannet-ai/plannet/config"
 )
 
 // exportCmd represents the export command
@@ -30,7 +29,7 @@ func init() {
 
 func runExport(args []string) {
 	// Load configuration
-	cfg, err := config.Load()
+	_, err := config.Load()
 	if err != nil {
 		fmt.Println("Error loading configuration:", err)
 		fmt.Println("Run 'plannet init' to set up your configuration.")

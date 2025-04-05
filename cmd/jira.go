@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 
-	"github.com/plannet-ai/plannet/config"
+	"github.com/manifoldco/promptui"
 	"github.com/spf13/cobra"
+	"github.com/plannet-ai/plannet/config"
 )
 
 // JiraTicket represents a Jira ticket

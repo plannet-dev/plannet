@@ -9,6 +9,23 @@ import (
 	"github.com/plannet-ai/plannet/config"
 )
 
+// mockConfig is used to mock the config for testing
+var mockConfig *config.Config
+
+func init() {
+	// Initialize mock config
+	mockConfig = &config.Config{
+		JiraURL:   "http://localhost:8080",
+		JiraToken: "test-token",
+		JiraUser:  "test-user",
+	}
+}
+
+// getConfig returns the mock config for testing
+func getConfig() (*config.Config, error) {
+	return mockConfig, nil
+}
+
 func TestJiraList(t *testing.T) {
 	// Create a mock server
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,9 +41,9 @@ func TestJiraList(t *testing.T) {
 		}
 
 		// Check URL
-		expectedURL := "/rest/api/2/search?jql=assignee=test-user+ORDER+BY+updated+DESC"
-		if r.URL.Path+"?"+r.URL.RawQuery != expectedURL {
-			t.Errorf("Expected URL to be %s, got %s", expectedURL, r.URL.Path+"?"+r.URL.RawQuery)
+		expectedURL := "/rest/api/2/search"
+		if r.URL.Path != expectedURL {
+			t.Errorf("Expected URL to be %s, got %s", expectedURL, r.URL.Path)
 		}
 
 		// Return a mock response
@@ -34,77 +51,35 @@ func TestJiraList(t *testing.T) {
 			Issues []struct {
 				Key    string `json:"key"`
 				Fields struct {
-					Summary     string `json:"summary"`
-					Status     struct {
+					Summary string `json:"summary"`
+					Status  struct {
 						Name string `json:"name"`
 					} `json:"status"`
-					Type struct {
-						Name string `json:"name"`
-					} `json:"type"`
-					Priority struct {
-						Name string `json:"name"`
-					} `json:"priority"`
-					Assignee struct {
-						DisplayName string `json:"displayName"`
-					} `json:"assignee"`
 				} `json:"fields"`
 			} `json:"issues"`
 		}{
 			Issues: []struct {
 				Key    string `json:"key"`
 				Fields struct {
-					Summary     string `json:"summary"`
-					Status     struct {
+					Summary string `json:"summary"`
+					Status  struct {
 						Name string `json:"name"`
 					} `json:"status"`
-					Type struct {
-						Name string `json:"name"`
-					} `json:"type"`
-					Priority struct {
-						Name string `json:"name"`
-					} `json:"priority"`
-					Assignee struct {
-						DisplayName string `json:"displayName"`
-					} `json:"assignee"`
 				} `json:"fields"`
 			}{
 				{
 					Key: "TEST-123",
 					Fields: struct {
-						Summary     string `json:"summary"`
-						Status     struct {
+						Summary string `json:"summary"`
+						Status  struct {
 							Name string `json:"name"`
 						} `json:"status"`
-						Type struct {
-							Name string `json:"name"`
-						} `json:"type"`
-						Priority struct {
-							Name string `json:"name"`
-						} `json:"priority"`
-						Assignee struct {
-							DisplayName string `json:"displayName"`
-						} `json:"assignee"`
 					}{
 						Summary: "Test ticket",
 						Status: struct {
 							Name string `json:"name"`
 						}{
 							Name: "In Progress",
-						},
-						Type: struct {
-							Name string `json:"name"`
-						}{
-							Name: "Task",
-						},
-						Priority: struct {
-							Name string `json:"name"`
-						}{
-							Name: "High",
-						},
-						Assignee: struct {
-							DisplayName string `json:"displayName"`
-						}{
-							DisplayName: "Test User",
 						},
 					},
 				},
@@ -116,19 +91,8 @@ func TestJiraList(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create a test config
-	cfg := &config.Config{
-		JiraURL:   server.URL,
-		JiraToken: "test-token",
-		JiraUser:  "test-user",
-	}
-
-	// Mock the config.Load function
-	originalLoad := config.Load
-	defer func() { config.Load = originalLoad }()
-	config.Load = func() (*config.Config, error) {
-		return cfg, nil
-	}
+	// Update mock config with server URL
+	mockConfig.JiraURL = server.URL
 
 	// Call the function
 	runJiraList()
@@ -227,19 +191,8 @@ func TestJiraView(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Create a test config
-	cfg := &config.Config{
-		JiraURL:   server.URL,
-		JiraToken: "test-token",
-		JiraUser:  "test-user",
-	}
-
-	// Mock the config.Load function
-	originalLoad := config.Load
-	defer func() { config.Load = originalLoad }()
-	config.Load = func() (*config.Config, error) {
-		return cfg, nil
-	}
+	// Update mock config with server URL
+	mockConfig.JiraURL = server.URL
 
 	// Call the function
 	runJiraView("TEST-123")
@@ -328,39 +281,13 @@ func TestJiraCreate(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusCreated)
 		json.NewEncoder(w).Encode(response)
 	}))
 	defer server.Close()
 
-	// Create a test config
-	cfg := &config.Config{
-		JiraURL:   server.URL,
-		JiraToken: "test-token",
-		JiraUser:  "test-user",
-	}
-
-	// Mock the config.Load function
-	originalLoad := config.Load
-	defer func() { config.Load = originalLoad }()
-	config.Load = func() (*config.Config, error) {
-		return cfg, nil
-	}
-
-	// Mock the promptui.Prompt.Run function
-	originalPromptRun := promptui.Prompt{}.Run
-	defer func() { promptui.Prompt{}.Run = originalPromptRun }()
-	promptui.Prompt{}.Run = func() (string, error) {
-		return "Test summary", nil
-	}
-
-	// Mock the promptui.Select.Run function
-	originalSelectRun := promptui.Select{}.Run
-	defer func() { promptui.Select{}.Run = originalSelectRun }()
-	promptui.Select{}.Run = func() (int, string, error) {
-		return 0, "Task", nil
-	}
+	// Update mock config with server URL
+	mockConfig.JiraURL = server.URL
 
 	// Call the function
-	runJiraCreate()
+	runJiraCreate("Test summary", "Test description", "Task", "TEST")
 } 

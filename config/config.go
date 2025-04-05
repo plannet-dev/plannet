@@ -19,6 +19,7 @@ type Config struct {
 	JiraURL        string            `json:"jira_url,omitempty"`
 	JiraToken      string            `json:"jira_token,omitempty"`
 	JiraUser       string            `json:"jira_user,omitempty"`
+	CopyPreference CopyPreference    `json:"copy_preference,omitempty"`
 }
 
 var (
@@ -28,21 +29,22 @@ var (
 	configPath string
 )
 
+func init() {
+	// Get user's home directory
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		// If we can't get the home directory, use the current directory
+		homeDir = "."
+	}
+	configPath = filepath.Join(homeDir, ".plannetrc")
+}
+
 // Load loads the configuration from the .plannetrc file
 func Load() (*Config, error) {
 	// If config is already loaded, return it
 	if globalConfig != nil {
 		return globalConfig, nil
 	}
-
-	// Get user's home directory
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("error finding home directory: %w", err)
-	}
-
-	// Define the path for the config file
-	configPath = filepath.Join(homeDir, ".plannetrc")
 
 	// Check if config exists
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
@@ -99,6 +101,6 @@ func GetConfigPath() string {
 
 // IsInitialized checks if Plannet is initialized
 func IsInitialized() bool {
-	_, err := Load()
-	return err == nil
+	_, err := os.Stat(configPath)
+	return !os.IsNotExist(err)
 } 

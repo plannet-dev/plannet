@@ -10,6 +10,7 @@ You can bring your own LLM, or use ours at https://www.plannet.dev/
 - 🎫 Optional Jira integration
 - 🎨 Rich terminal UI for ticket selection
 - ⚙️ Configurable to bring your own model
+- 📋 Clipboard integration with customizable behavior
 
 ## Installation
 
@@ -30,7 +31,7 @@ cd plannet
 go mod download
 
 # Build the binary
-go build -o plannet
+./build.sh
 ```
 
 ## Configuration
@@ -47,7 +48,8 @@ Create a `.plannetrc` file in your home directory with the following structure:
   },
   "jira_url": "https://your-instance.atlassian.net",
   "jira_token": "your-jira-token",
-  "jira_user": "your-email@company.com"
+  "jira_user": "your-email@company.com",
+  "copy_preference": "ask-every-time"
 }
 ```
 
@@ -64,6 +66,7 @@ Create a `.plannetrc` file in your home directory with the following structure:
   - `jira_url`: Your Jira instance URL
   - `jira_token`: Your Jira API token
   - `jira_user`: Your Jira username/email
+  - `copy_preference`: How to handle clipboard copying (options: ask-every-time, ask-once, copy-automatically, do-not-copy)
 
 ## Usage
 
@@ -73,8 +76,11 @@ Create a `.plannetrc` file in your home directory with the following structure:
 # Generate content with a custom prompt
 plannet --prompt "Generate a test plan for a login feature"
 
+# Use the generate command
+plannet generate "Generate a test plan for a login feature"
+
 # Use Jira integration (if configured)
-plannet
+plannet jira list
 
 # Show version information
 plannet --version
@@ -97,6 +103,7 @@ When Jira integration is configured, Plannet will:
 - Generated content is displayed in the terminal
 - Option to copy output to clipboard
 - Color-coded output for better readability
+- Configurable clipboard behavior
 
 ## Development
 
@@ -105,19 +112,32 @@ When Jira integration is configured, Plannet will:
 ```
 .
 ├── main.go          # Application entry point
-├── app.go           # Core application logic
-├── config.go        # Configuration management
-├── generator.go     # LLM interaction
-├── jira.go          # Jira integration
-└── output.go        # Output handling
+├── cmd/             # Command implementations using Cobra
+│   ├── root.go      # Root command definition
+│   ├── jira.go      # Jira-related commands
+│   ├── track.go     # Work tracking commands
+│   ├── generate.go  # Content generation command
+│   └── ...          # Other command files
+├── config/          # Configuration management
+│   ├── config.go    # Configuration struct and functions
+│   ├── copy_preference.go # Clipboard preference handling
+│   └── config_test.go # Configuration tests
+├── llm/             # LLM interaction
+│   └── generator.go # LLM request handling
+├── output/          # Output management
+│   └── output.go    # Output display and clipboard handling
+├── build/           # Build output directory
+├── build.sh         # Build script
+└── test_track.sh    # Test script for tracking feature
 ```
+
+> **Note:** The `src/` directory contains an old implementation that is no longer used. See `src/README.md` for details.
 
 ### Adding New Features
 
-1. Create a new file for your feature
-2. Update the App struct in app.go if needed
-3. Add configuration options in config.go
-4. Update the README.md with new features
+1. Create a new command file in the `cmd/` directory
+2. Add your command to the root command in `cmd/root.go`
+3. Update the README.md with new features
 
 ### Running Tests
 
@@ -139,5 +159,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgments
 
 - Built with [Go](https://golang.org/)
+- Uses [Cobra](https://github.com/spf13/cobra) for CLI commands
 - Uses [promptui](https://github.com/manifoldco/promptui) for interactive prompts
 - Uses [fatih/color](https://github.com/fatih/color) for terminal colors
