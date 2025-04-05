@@ -23,7 +23,7 @@ You can bring your own LLM, or use ours at https://www.plannet.dev/
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/plannet.git
+git clone https://github.com/plannet-ai/plannet.git
 cd plannet
 
 # Install dependencies
@@ -54,6 +54,7 @@ Create a `.plannetrc` file in your home directory with the following structure:
 ### Configuration Fields
 
 - **Required Fields:**
+
   - `base_url`: The LLM API endpoint
   - `model`: The model identifier to use
   - `headers`: API authentication headers
@@ -85,6 +86,7 @@ plannet --debug
 ### Using with Jira
 
 When Jira integration is configured, Plannet will:
+
 1. Fetch your assigned tickets
 2. Present an interactive selection interface
 3. Use the selected ticket's information to generate content
