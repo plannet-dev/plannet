@@ -1,0 +1,189 @@
+package cmd
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/manifoldco/promptui"
+	"github.com/plannet-ai/plannet/config"
+	"github.com/spf13/cobra"
+)
+
+// TrackedWork represents a piece of work tracked by the user
+type TrackedWork struct {
+	ID          string    `json:"id"`
+	Description string    `json:"description"`
+	TicketID    string    `json:"ticket_id,omitempty"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time,omitempty"`
+	Tags        []string  `json:"tags,omitempty"`
+}
+
+// trackCmd represents the track command
+var trackCmd = &cobra.Command{
+	Use:   "track [description]",
+	Short: "Track a piece of work manually",
+	Long: `Track a piece of work manually that isn't captured by git.
+This command allows you to record work that doesn't involve code changes,
+such as meetings, documentation, or research.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		runTrack(args)
+	},
+}
+
+func init() {
+	rootCmd.AddCommand(trackCmd)
+}
+
+func runTrack(args []string) {
+	// Load configuration
+	cfg, err := config.Load()
+	if err != nil {
+		fmt.Println("Error loading configuration:", err)
+		fmt.Println("Run 'plannet init' to set up your configuration.")
+		return
+	}
+
+	// Get description from args or prompt
+	var description string
+	if len(args) > 0 {
+		description = args[0]
+	} else {
+		prompt := promptui.Prompt{
+			Label: "What are you working on?",
+		}
+		result, err := prompt.Run()
+		if err != nil {
+			fmt.Println("Error getting description:", err)
+			return
+		}
+		description = result
+	}
+
+	// Ask for ticket ID if available
+	var ticketID string
+	if len(cfg.TicketPrefixes) > 0 {
+		prompt := promptui.Prompt{
+			Label:    "Ticket ID (optional)",
+			Validate: validateTicketID,
+		}
+		result, err := prompt.Run()
+		if err != nil && err != promptui.ErrInterrupt {
+			fmt.Println("Error getting ticket ID:", err)
+			return
+		}
+		ticketID = result
+	}
+
+	// Ask for tags
+	var tags []string
+	for {
+		prompt := promptui.Prompt{
+			Label: "Add a tag (leave empty to finish)",
+		}
+		result, err := prompt.Run()
+		if err != nil {
+			fmt.Println("Error getting tag:", err)
+			return
+		}
+		if result == "" {
+			break
+		}
+		tags = append(tags, result)
+	}
+
+	// Create tracked work
+	work := TrackedWork{
+		ID:          generateID(),
+		Description: description,
+		TicketID:    ticketID,
+		StartTime:   time.Now(),
+		Tags:        tags,
+	}
+
+	// Save tracked work
+	err = saveTrackedWork(work)
+	if err != nil {
+		fmt.Println("Error saving tracked work:", err)
+		return
+	}
+
+	fmt.Println("Work tracked successfully!")
+	fmt.Printf("ID: %s\n", work.ID)
+	fmt.Printf("Description: %s\n", work.Description)
+	if work.TicketID != "" {
+		fmt.Printf("Ticket ID: %s\n", work.TicketID)
+	}
+	if len(work.Tags) > 0 {
+		fmt.Printf("Tags: %s\n", strings.Join(work.Tags, ", "))
+	}
+}
+
+// validateTicketID validates a ticket ID against the configured prefixes
+func validateTicketID(input string) error {
+	if input == "" {
+		return nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	for _, prefix := range cfg.TicketPrefixes {
+		if strings.HasPrefix(input, prefix) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("ticket ID must start with one of: %s", strings.Join(cfg.TicketPrefixes, ", "))
+}
+
+// generateID generates a unique ID for tracked work
+func generateID() string {
+	return fmt.Sprintf("tw-%d", time.Now().UnixNano())
+}
+
+// saveTrackedWork saves a piece of tracked work to the database
+func saveTrackedWork(work TrackedWork) error {
+	// Get the database directory
+	dbDir, err := getDBDir()
+	if err != nil {
+		return err
+	}
+
+	// Create the database directory if it doesn't exist
+	err = os.MkdirAll(dbDir, 0755)
+	if err != nil {
+		return err
+	}
+
+	// Create the file path
+	filePath := filepath.Join(dbDir, fmt.Sprintf("%s.json", work.ID))
+
+	// Convert to JSON
+	data, err := json.MarshalIndent(work, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	// Write to file
+	err = os.WriteFile(filePath, data, 0644)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// getDBDir gets the directory for the tracked work database
+func getDBDir() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(homeDir, ".plannet", "db"), nil
+} 
