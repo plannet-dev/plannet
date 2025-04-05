@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/manifoldco/promptui"
@@ -20,6 +21,12 @@ type TrackedWork struct {
 	StartTime   time.Time `json:"start_time"`
 	EndTime     time.Time `json:"end_time,omitempty"`
 	Tags        []string  `json:"tags,omitempty"`
+	Status      string    `json:"status"` // "active", "paused", "completed"
+	Context     struct {
+		Branch     string   `json:"branch,omitempty"`
+		Files      []string `json:"files,omitempty"`
+		CommitHash string   `json:"commit_hash,omitempty"`
+	} `json:"context,omitempty"`
 }
 
 // trackCmd represents the track command
@@ -47,6 +54,58 @@ func runTrack(args []string) {
 		return
 	}
 
+	// Check for active work
+	activeWork, err := getActiveWork()
+	if err != nil {
+		fmt.Println("Error checking active work:", err)
+		return
+	}
+
+	if activeWork != nil {
+		fmt.Println("You have active work:")
+		fmt.Printf("Description: %s\n", activeWork.Description)
+		if activeWork.TicketID != "" {
+			fmt.Printf("Ticket: %s\n", activeWork.TicketID)
+		}
+		fmt.Printf("Started: %s\n", activeWork.StartTime.Format("15:04"))
+		
+		// Ask what to do with active work
+		prompt := promptui.Select{
+			Label: "What would you like to do?",
+			Items: []string{
+				"Complete current work and start new",
+				"Pause current work and start new",
+				"Cancel new work",
+			},
+		}
+		
+		index, _, err := prompt.Run()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
+
+		switch index {
+		case 0: // Complete current work
+			activeWork.EndTime = time.Now()
+			activeWork.Status = "completed"
+			err = saveTrackedWork(*activeWork)
+			if err != nil {
+				fmt.Println("Error completing work:", err)
+				return
+			}
+		case 1: // Pause current work
+			activeWork.Status = "paused"
+			err = saveTrackedWork(*activeWork)
+			if err != nil {
+				fmt.Println("Error pausing work:", err)
+				return
+			}
+		case 2: // Cancel new work
+			return
+		}
+	}
+
 	// Get description from args or prompt
 	var description string
 	if len(args) > 0 {
@@ -63,9 +122,17 @@ func runTrack(args []string) {
 		description = result
 	}
 
-	// Ask for ticket ID if available
+	// Try to infer ticket ID from current branch
 	var ticketID string
-	if len(cfg.TicketPrefixes) > 0 {
+	if cfg.GitIntegration {
+		branch, err := getCurrentBranch()
+		if err == nil {
+			ticketID = extractTicketID(branch, cfg.TicketPrefixes)
+		}
+	}
+
+	// If no ticket ID found, ask for one
+	if ticketID == "" && len(cfg.TicketPrefixes) > 0 {
 		prompt := promptui.Prompt{
 			Label:    "Ticket ID (optional)",
 			Validate: validateTicketID,
@@ -95,6 +162,24 @@ func runTrack(args []string) {
 		tags = append(tags, result)
 	}
 
+	// Get context if in git repo
+	var context struct {
+		Branch     string
+		Files      []string
+		CommitHash string
+	}
+	if cfg.GitIntegration {
+		if branch, err := getCurrentBranch(); err == nil {
+			context.Branch = branch
+		}
+		if commits, err := getRecentCommits(1); err == nil && len(commits) > 0 {
+			context.CommitHash = commits[0].Hash
+			if files, err := getFilesChanged(commits[0].Hash); err == nil {
+				context.Files = files
+			}
+		}
+	}
+
 	// Create tracked work
 	work := TrackedWork{
 		ID:          generateID(),
@@ -102,6 +187,8 @@ func runTrack(args []string) {
 		TicketID:    ticketID,
 		StartTime:   time.Now(),
 		Tags:        tags,
+		Status:      "active",
+		Context:     context,
 	}
 
 	// Save tracked work
@@ -120,6 +207,25 @@ func runTrack(args []string) {
 	if len(work.Tags) > 0 {
 		fmt.Printf("Tags: %s\n", strings.Join(work.Tags, ", "))
 	}
+	if work.Context.Branch != "" {
+		fmt.Printf("Branch: %s\n", work.Context.Branch)
+	}
+}
+
+// getActiveWork returns the currently active work, if any
+func getActiveWork() (*TrackedWork, error) {
+	trackedWork, err := getTrackedWork()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, work := range trackedWork {
+		if work.Status == "active" {
+			return &work, nil
+		}
+	}
+
+	return nil, nil
 }
 
 // validateTicketID validates a ticket ID against the configured prefixes
