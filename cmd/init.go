@@ -23,6 +23,7 @@ type Config struct {
 	JiraURL        string            `json:"jira_url,omitempty"`
 	JiraToken      string            `json:"jira_token,omitempty"`
 	JiraUser       string            `json:"jira_user,omitempty"`
+	CopyPreference string            `json:"copy_preference"`
 }
 
 // initCmd represents the init command
@@ -77,7 +78,7 @@ func runInit() {
 
 	// Ask for ticket prefixes
 	fmt.Println("Let's set up how Plannet identifies tickets in your work.")
-	
+
 	prefixPrompt := promptui.Prompt{
 		Label:   "Enter ticket prefixes (comma-separated, e.g., JIRA-, DEV-, TICKET-)",
 		Default: "JIRA-",
@@ -123,6 +124,35 @@ func runInit() {
 
 	config.GitIntegration = gitResult == "Yes"
 
+	// Ask about copy preference
+	copyPrompt := promptui.Select{
+		Label: "How would you like to handle copying to clipboard?",
+		Items: []string{
+			"Ask every time",
+			"Ask once per session",
+			"Copy automatically",
+			"Do not copy",
+		},
+	}
+
+	_, copyResult, err := copyPrompt.Run()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	// Map the selection to the appropriate CopyPreference value
+	switch copyResult {
+	case "Ask every time":
+		config.CopyPreference = "ask-every-time"
+	case "Ask once per session":
+		config.CopyPreference = "ask-once"
+	case "Copy automatically":
+		config.CopyPreference = "copy-automatically"
+	case "Do not copy":
+		config.CopyPreference = "do-not-copy"
+	}
+
 	// Ask about LLM integration
 	llmPrompt := promptui.Select{
 		Label: "Would you like to set up LLM integration?",
@@ -152,10 +182,10 @@ func runInit() {
 			// Set up Plannet LLM
 			config.BaseURL = "https://brain.plannet.dev/v1/completions"
 			config.Model = "plannet-default"
-			
+
 			fmt.Println("\nTo use Plannet's LLM, you need an API key.")
 			fmt.Println("Visit https://plannet.dev/console to get your API key.")
-			
+
 			apiKeyPrompt := promptui.Prompt{
 				Label: "Enter your Plannet API key",
 				Mask:  '*',
@@ -273,7 +303,7 @@ func runInit() {
 		// Ask for Jira API token
 		fmt.Println("\nTo use Jira, you need an API token.")
 		fmt.Println("Visit https://id.atlassian.com/manage-profile/security/api-tokens to create one.")
-		
+
 		jiraTokenPrompt := promptui.Prompt{
 			Label: "Enter your Jira API token",
 			Mask:  '*',
@@ -303,7 +333,7 @@ func runInit() {
 
 	fmt.Println("\nPlannet initialized successfully! No more un-tracked side quests.")
 	fmt.Printf("Configuration saved to %s\n", configPath)
-	
+
 	// Display next steps
 	fmt.Println("\nNext steps:")
 	fmt.Println("1. Run 'plannet now' to see what you're currently working on")
@@ -312,4 +342,4 @@ func runInit() {
 	fmt.Println("4. Run 'plannet list' to see all tracked work")
 	fmt.Println("5. Run 'plannet complete' to mark work as complete")
 	fmt.Println("6. Run 'plannet export' to export your work data")
-} 
+}

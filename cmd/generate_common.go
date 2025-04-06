@@ -7,33 +7,13 @@ import (
 	"github.com/plannet-ai/plannet/config"
 	"github.com/plannet-ai/plannet/llm"
 	"github.com/plannet-ai/plannet/output"
-	"github.com/spf13/cobra"
 )
 
-// generateCmd represents the generate command
-var generateCmd = &cobra.Command{
-	Use:   "generate [prompt]",
-	Short: "Generate content using the LLM",
-	Long: `Generate content using the LLM.
-This command allows you to generate content based on a prompt.
-If no prompt is provided, it will use the --prompt flag.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		runGenerateCmd(args)
-	},
-}
+// prompt is the prompt for content generation
+var prompt string
 
-// generatePrompt is the prompt for content generation
-var generatePrompt string
-
-func init() {
-	rootCmd.AddCommand(generateCmd)
-
-	// Add flags
-	generateCmd.Flags().StringVarP(&generatePrompt, "prompt", "p", "", "Prompt for content generation")
-}
-
-// runGenerateCmd executes the generate command
-func runGenerateCmd(args []string) {
+// runGenerate executes the generate command
+func runGenerate(args []string) {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -43,7 +23,7 @@ func runGenerateCmd(args []string) {
 	}
 
 	// Get prompt from args or flag
-	userPrompt := generatePrompt
+	userPrompt := prompt
 	if len(args) > 0 {
 		userPrompt = strings.Join(args, " ")
 	}

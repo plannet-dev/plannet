@@ -55,7 +55,7 @@ func (g *Generator) Generate(prompt string) (string, error) {
 
 	reqBody := Request{
 		Model:  g.config.Model,
-		Prompt:  formattedPrompt,
+		Prompt: formattedPrompt,
 	}
 
 	response, err := g.makeRequest(reqBody)
@@ -67,37 +67,21 @@ func (g *Generator) Generate(prompt string) (string, error) {
 }
 
 // formatPrompt formats the prompt according to the model's expected format
-func (g *Generator) formatPrompt(userPrompt string) string {
-	const (
-		beginText       = "<|begin_of_text|>"
-		headerSystem    = "<|start_header_id|>system<|end_header_id|>\n"
-		headerUser      = "<|start_header_id|>user<|end_header_id|>\n"
-		headerAssistant = "<|start_header_id|>assistant<|end_header_id|>\n"
-		eotId           = "<|eot_id|>"
-	)
-
-	var prompt string
-	prompt = beginText
-
-	// Add system message if present
+func (g *Generator) formatPrompt(prompt string) string {
 	if g.config.SystemPrompt != "" {
-		prompt += headerSystem + g.config.SystemPrompt + eotId
+		return fmt.Sprintf("%s\n\nUser: %s\n\nAssistant:", g.config.SystemPrompt, prompt)
 	}
-
-	// Add user message
-	prompt += headerUser + "Respond only with an example ticket. Don't include an ID or number. Create a ticket for" + userPrompt + eotId + headerAssistant + "\n"
-
-	return prompt
+	return fmt.Sprintf("User: %s\n\nAssistant:", prompt)
 }
 
-// makeRequest sends the request to the LLM API
+// makeRequest sends a request to the LLM API
 func (g *Generator) makeRequest(reqBody Request) (*Response, error) {
-	jsonBody, err := json.Marshal(reqBody)
+	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("error marshaling request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", g.config.BaseURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequest("POST", g.config.BaseURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
 	}
@@ -108,42 +92,33 @@ func (g *Generator) makeRequest(reqBody Request) (*Response, error) {
 		req.Header.Set(key, value)
 	}
 
-	// Make the request
+	// Send request
 	resp, err := g.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("error making request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Read response body
+	// Read response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("error reading response: %w", err)
 	}
 
-	// Check status code
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned non-200 status code: %d, body: %s", resp.StatusCode, string(body))
-	}
-
 	// Parse response
-	var llmResp Response
-	if err := json.Unmarshal(body, &llmResp); err != nil {
+	var response Response
+	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, fmt.Errorf("error parsing response: %w", err)
 	}
 
-	return &llmResp, nil
+	return &response, nil
 }
 
-// extractResponse extracts the generated text from the API response
-func (g *Generator) extractResponse(resp *Response) (string, error) {
-	if len(resp.Choices) == 0 {
+// extractResponse extracts the generated text from the response
+func (g *Generator) extractResponse(response *Response) (string, error) {
+	if len(response.Choices) == 0 {
 		return "", fmt.Errorf("no choices in response")
 	}
 
-	if resp.Choices[0].Text == "" {
-		return "", fmt.Errorf("empty response text")
-	}
-
-	return resp.Choices[0].Text, nil
-} 
+	return response.Choices[0].Text, nil
+}

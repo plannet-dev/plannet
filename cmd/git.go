@@ -28,7 +28,7 @@ func getCurrentBranch() (string, error) {
 	cmd := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD")
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get current branch: %w", err)
 	}
 	return strings.TrimSpace(string(output)), nil
 }
@@ -58,7 +58,7 @@ func getRecentCommits(count int) ([]Commit, error) {
 	cmd := exec.Command("git", "log", "-n", fmt.Sprintf("%d", count), "--format=%H|%s|%ct")
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get recent commits: %w", err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -69,7 +69,7 @@ func getRecentCommits(count int) ([]Commit, error) {
 		if len(parts) >= 2 {
 			hash := parts[0]
 			message := parts[1]
-			
+
 			var commitTime time.Time
 			if len(parts) >= 3 {
 				timestamp := parts[2]
@@ -92,7 +92,7 @@ func getRecentCommits(count int) ([]Commit, error) {
 // findSideQuests finds commits that don't contain ticket IDs
 func findSideQuests(commits []Commit, prefixes []string) []Commit {
 	sideQuests := []Commit{}
-	
+
 	for _, commit := range commits {
 		hasTicketID := false
 		for _, prefix := range prefixes {
@@ -101,12 +101,12 @@ func findSideQuests(commits []Commit, prefixes []string) []Commit {
 				break
 			}
 		}
-		
+
 		if !hasTicketID {
 			sideQuests = append(sideQuests, commit)
 		}
 	}
-	
+
 	return sideQuests
 }
 
@@ -116,7 +116,7 @@ func getFilesChanged(dir string, commitHash string) ([]string, error) {
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get changed files: %w", err)
 	}
 
 	files := strings.Split(strings.TrimSpace(string(output)), "\n")
@@ -126,27 +126,24 @@ func getFilesChanged(dir string, commitHash string) ([]string, error) {
 	return files, nil
 }
 
-// getCommitsSince gets all commits since a specific commit
-func getCommitsSince(dir string, commitHash string) ([]Commit, error) {
-	cmd := exec.Command("git", "log", fmt.Sprintf("%s..HEAD", commitHash), "--format=%H|%s|%ct")
+// getCommitsSince gets all commits since a specific time
+func getCommitsSince(dir string, since string) ([]Commit, error) {
+	cmd := exec.Command("git", "log", "--since", since, "--format=%H|%s|%ct")
 	cmd.Dir = dir
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get commits since %s: %w", since, err)
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	if len(lines) == 1 && lines[0] == "" {
-		return []Commit{}, nil
-	}
-
 	commits := make([]Commit, 0, len(lines))
+
 	for _, line := range lines {
 		parts := strings.Split(line, "|")
 		if len(parts) >= 2 {
 			hash := parts[0]
 			message := parts[1]
-			
+
 			var commitTime time.Time
 			if len(parts) >= 3 {
 				timestamp := parts[2]
@@ -164,4 +161,29 @@ func getCommitsSince(dir string, commitHash string) ([]Commit, error) {
 	}
 
 	return commits, nil
-} 
+}
+
+// extractTicketIDFromMessage extracts a ticket ID from a commit message
+func extractTicketIDFromMessage(message string, prefixes []string) string {
+	for _, prefix := range prefixes {
+		if strings.Contains(message, prefix) {
+			// Find the start of the ticket ID
+			startIndex := strings.Index(message, prefix)
+			if startIndex == -1 {
+				continue
+			}
+
+			// Extract the part after the prefix
+			ticketPart := message[startIndex:]
+
+			// Find the end of the ticket ID (usually a space, colon, or end of string)
+			endIndex := strings.IndexAny(ticketPart, " :")
+			if endIndex == -1 {
+				endIndex = len(ticketPart)
+			}
+
+			return ticketPart[:endIndex]
+		}
+	}
+	return ""
+}

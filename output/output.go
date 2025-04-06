@@ -92,6 +92,7 @@ func (m *Manager) displayOutput(output string) error {
 	return nil
 }
 
+// promptForCopy asks the user if they want to copy the output
 func (m *Manager) promptForCopy() bool {
 	var response string
 	prompt := "Copy to clipboard? [y/n]: "
@@ -147,4 +148,4 @@ func (m *Manager) showCopyConfirmation() {
 func HandleOutput(output string, cfg *config.Config) error {
 	manager := NewManager(true, cfg) // Enable colors by default
 	return manager.HandleOutput(output)
-} 
+}

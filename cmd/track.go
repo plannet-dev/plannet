@@ -13,27 +13,23 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// TrackedWork represents a piece of work tracked by the user
-type TrackedWork struct {
-	ID          string    `json:"id"`
-	Description string    `json:"description"`
-	TicketID    string    `json:"ticket_id,omitempty"`
-	StartTime   time.Time `json:"start_time"`
-	EndTime     time.Time `json:"end_time,omitempty"`
-	Tags        []string  `json:"tags,omitempty"`
-	Status      string    `json:"status"` // "active", "paused", "completed"
-	Context     struct {
-		Branch     string   `json:"branch,omitempty"`
-		Files      []string `json:"files,omitempty"`
-		CommitHash string   `json:"commit_hash,omitempty"`
-	} `json:"context,omitempty"`
-}
-
-// Context represents the git context of tracked work
-type Context struct {
+// WorkContext represents the git context of tracked work
+type WorkContext struct {
 	Branch     string   `json:"branch,omitempty"`
 	Files      []string `json:"files,omitempty"`
 	CommitHash string   `json:"commit_hash,omitempty"`
+}
+
+// TrackedWork represents a piece of work tracked by the user
+type TrackedWork struct {
+	ID          string      `json:"id"`
+	Description string      `json:"description"`
+	TicketID    string      `json:"ticket_id,omitempty"`
+	StartTime   time.Time   `json:"start_time"`
+	EndTime     time.Time   `json:"end_time,omitempty"`
+	Tags        []string    `json:"tags,omitempty"`
+	Status      string      `json:"status"` // "active", "paused", "completed"
+	Context     WorkContext `json:"context,omitempty"`
 }
 
 // trackCmd represents the track command
@@ -75,7 +71,7 @@ func runTrack(args []string) {
 			fmt.Printf("Ticket: %s\n", activeWork.TicketID)
 		}
 		fmt.Printf("Started: %s\n", activeWork.StartTime.Format("15:04"))
-		
+
 		// Ask what to do with active work
 		prompt := promptui.Select{
 			Label: "What would you like to do?",
@@ -85,9 +81,13 @@ func runTrack(args []string) {
 				"Cancel new work",
 			},
 		}
-		
+
 		index, _, err := prompt.Run()
 		if err != nil {
+			if err == promptui.ErrInterrupt {
+				fmt.Println("\nOperation cancelled.")
+				return
+			}
 			fmt.Println("Error:", err)
 			return
 		}
@@ -116,25 +116,38 @@ func runTrack(args []string) {
 	// Get description from args or prompt
 	var description string
 	if len(args) > 0 {
-		description = args[0]
+		description = strings.Join(args, " ")
 	} else {
 		prompt := promptui.Prompt{
 			Label: "What are you working on?",
+			Validate: func(input string) error {
+				if strings.TrimSpace(input) == "" {
+					return fmt.Errorf("description cannot be empty")
+				}
+				return nil
+			},
 		}
 		result, err := prompt.Run()
 		if err != nil {
+			if err == promptui.ErrInterrupt {
+				fmt.Println("\nOperation cancelled.")
+				return
+			}
 			fmt.Println("Error getting description:", err)
 			return
 		}
 		description = result
 	}
 
-	// Try to infer ticket ID from current branch
+	// Try to infer ticket ID from current branch if git integration is enabled
 	var ticketID string
 	if cfg.GitIntegration {
-		branch, err := getCurrentBranch()
-		if err == nil {
-			ticketID = extractTicketID(branch, cfg.TicketPrefixes)
+		currentDir, err := os.Getwd()
+		if err == nil && isGitRepo(currentDir) {
+			branch, err := getCurrentBranch()
+			if err == nil {
+				ticketID = extractTicketID(branch, cfg.TicketPrefixes)
+			}
 		}
 	}
 
@@ -145,11 +158,15 @@ func runTrack(args []string) {
 			Validate: validateTicketID,
 		}
 		result, err := prompt.Run()
-		if err != nil && err != promptui.ErrInterrupt {
-			fmt.Println("Error getting ticket ID:", err)
-			return
+		if err != nil {
+			if err != promptui.ErrInterrupt && err != promptui.ErrAbort {
+				fmt.Println("Error getting ticket ID:", err)
+				return
+			}
+			// If user cancelled, just continue without a ticket ID
+		} else {
+			ticketID = result
 		}
-		ticketID = result
 	}
 
 	// Ask for tags
@@ -160,25 +177,34 @@ func runTrack(args []string) {
 		}
 		result, err := prompt.Run()
 		if err != nil {
+			if err == promptui.ErrInterrupt {
+				break
+			}
 			fmt.Println("Error getting tag:", err)
 			return
 		}
 		if result == "" {
 			break
 		}
-		tags = append(tags, result)
+		tags = append(tags, strings.TrimSpace(result))
 	}
 
-	// Get context if in git repo
-	var context Context
+	// Get context if in git repo and git integration is enabled
+	var context WorkContext
 	if cfg.GitIntegration {
-		if branch, err := getCurrentBranch(); err == nil {
-			context.Branch = branch
-		}
-		if commits, err := getRecentCommits(1); err == nil && len(commits) > 0 {
-			context.CommitHash = commits[0].Hash
-			if files, err := getFilesChanged(commits[0].Hash); err == nil {
-				context.Files = files
+		currentDir, err := os.Getwd()
+		if err == nil && isGitRepo(currentDir) {
+			// Get current branch
+			if branch, err := getCurrentBranch(); err == nil {
+				context.Branch = branch
+			}
+
+			// Get most recent commit and changed files
+			if commits, err := getRecentCommits(1); err == nil && len(commits) > 0 {
+				context.CommitHash = commits[0].Hash
+				if files, err := getFilesChanged(currentDir, commits[0].Hash); err == nil {
+					context.Files = files
+				}
 			}
 		}
 	}
@@ -201,7 +227,7 @@ func runTrack(args []string) {
 		return
 	}
 
-	fmt.Println("Work tracked successfully!")
+	fmt.Println("\nWork tracked successfully!")
 	fmt.Printf("ID: %s\n", work.ID)
 	fmt.Printf("Description: %s\n", work.Description)
 	if work.TicketID != "" {
@@ -295,4 +321,4 @@ func getDBDir() (string, error) {
 		return "", err
 	}
 	return filepath.Join(homeDir, ".plannet", "db"), nil
-} 
+}

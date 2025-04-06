@@ -99,8 +99,15 @@ func GetConfigPath() string {
 	return configPath
 }
 
+// SetConfigPath sets the path to the configuration file
+// This is primarily used for testing
+func SetConfigPath(path string) {
+	configPath = path
+	globalConfig = nil // Reset the global config to force a reload
+}
+
 // IsInitialized checks if Plannet is initialized
 func IsInitialized() bool {
 	_, err := os.Stat(configPath)
 	return !os.IsNotExist(err)
-} 
+}

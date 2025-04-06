@@ -3,9 +3,6 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/plannet-ai/plannet/config"
@@ -74,216 +71,74 @@ func runStatus() {
 	// Display timeline
 	fmt.Println("Today's map:")
 	for _, block := range timeBlocks {
-		// Format time range
-		startTime := block.StartTime.Format("15:04")
-		endTime := block.EndTime.Format("15:04")
-		if endTime == "00:00" {
-			endTime = "now"
-		}
-
-		// Display time block
-		fmt.Printf("%s – %s: ", startTime, endTime)
-		
-		// Display ticket ID if available
-		if block.TicketID != "" {
-			fmt.Printf("%s", block.TicketID)
-		} else {
-			fmt.Printf("untracked work")
-		}
-
-		// Display commit count
-		fmt.Printf(" (%d commits)\n", len(block.Commits))
-		
-		// Display file changes if available
+		fmt.Printf("\n%s - %s\n", block.StartTime.Format("15:04"), block.EndTime.Format("15:04"))
+		fmt.Printf("Focus: %s\n", block.Focus)
 		if len(block.Files) > 0 {
-			fmt.Printf("  Files: %s\n", strings.Join(block.Files, ", "))
+			fmt.Println("Files changed:")
+			for _, file := range block.Files {
+				fmt.Printf("  - %s\n", file)
+			}
 		}
 	}
 }
 
-// TimeBlock represents a block of time with associated commits
+// TimeBlock represents a period of focused work
 type TimeBlock struct {
 	StartTime time.Time
 	EndTime   time.Time
-	TicketID  string
-	Commits   []Commit
+	Focus     string
 	Files     []string
 }
 
-// getCommitsSince gets commits since a given time reference
-func getCommitsSince(dir string, since string) ([]Commit, error) {
-	// Convert "midnight" to the appropriate git time reference
-	timeRef := "midnight"
-	if since == "midnight" {
-		timeRef = "00:00:00"
-	}
-
-	cmd := exec.Command("git", "log", "--since", timeRef, "--format=%H|%s|%ct")
-	cmd.Dir = dir
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	commits := make([]Commit, 0, len(lines))
-
-	for _, line := range lines {
-		parts := strings.Split(line, "|")
-		if len(parts) >= 2 {
-			hash := parts[0]
-			message := parts[1]
-			
-			var commitTime time.Time
-			if len(parts) >= 3 {
-				timestamp := parts[2]
-				if unixSeconds, err := strconv.ParseInt(timestamp, 10, 64); err == nil {
-					commitTime = time.Unix(unixSeconds, 0)
-				}
-			}
-
-			commits = append(commits, Commit{
-				Hash:    hash,
-				Message: message,
-				Time:    commitTime,
-			})
-		}
-	}
-
-	return commits, nil
-}
-
-// groupCommitsByTimeBlock groups commits into time blocks
+// groupCommitsByTimeBlock groups commits into time blocks of focused work
 func groupCommitsByTimeBlock(commits []Commit) []TimeBlock {
 	if len(commits) == 0 {
 		return []TimeBlock{}
 	}
 
-	// Sort commits by time (newest first)
-	sortedCommits := make([]Commit, len(commits))
-	copy(sortedCommits, commits)
-	
-	// Group commits into time blocks (30-minute intervals)
-	timeBlocks := []TimeBlock{}
-	
-	// Get the current time
-	now := time.Now()
-	
-	// Start with the most recent commit
+	var blocks []TimeBlock
 	currentBlock := TimeBlock{
 		StartTime: commits[0].Time,
-		EndTime:   now,
-		Commits:   []Commit{commits[0]},
+		EndTime:   commits[0].Time,
+		Focus:     commits[0].Message,
 	}
-	
-	// Extract ticket ID from the first commit
-	cfg, _ := config.Load()
-	if cfg != nil {
-		currentBlock.TicketID = extractTicketIDFromMessage(commits[0].Message, cfg.TicketPrefixes)
-	}
-	
+
 	// Get files changed in the first commit
-	files, _ := getFilesChanged(commits[0].Hash)
-	currentBlock.Files = files
-	
-	// Process the rest of the commits
+	if files, err := getFilesChanged(".", commits[0].Hash); err == nil {
+		currentBlock.Files = files
+	}
+
 	for i := 1; i < len(commits); i++ {
 		commit := commits[i]
-		
-		// If this commit is within 30 minutes of the previous block's start time,
-		// add it to the current block
-		if currentBlock.StartTime.Sub(commit.Time) < 30*time.Minute {
+		timeDiff := currentBlock.StartTime.Sub(commit.Time)
+
+		// If commits are within 30 minutes of each other, consider them part of the same block
+		if timeDiff < 30*time.Minute {
 			currentBlock.StartTime = commit.Time
-			currentBlock.Commits = append(currentBlock.Commits, commit)
-			
-			// Update ticket ID if this commit has one and the current block doesn't
-			if currentBlock.TicketID == "" {
-				if cfg != nil {
-					currentBlock.TicketID = extractTicketIDFromMessage(commit.Message, cfg.TicketPrefixes)
-				}
-			}
-			
+			currentBlock.Focus = commit.Message
+
 			// Add files changed in this commit
-			files, _ := getFilesChanged(commit.Hash)
-			currentBlock.Files = append(currentBlock.Files, files...)
+			if files, err := getFilesChanged(".", commit.Hash); err == nil {
+				currentBlock.Files = append(currentBlock.Files, files...)
+			}
 		} else {
 			// Start a new block
-			timeBlocks = append(timeBlocks, currentBlock)
-			
+			blocks = append(blocks, currentBlock)
 			currentBlock = TimeBlock{
 				StartTime: commit.Time,
-				EndTime:   commits[i-1].Time,
-				Commits:   []Commit{commit},
+				EndTime:   commit.Time,
+				Focus:     commit.Message,
 			}
-			
-			// Extract ticket ID from the commit
-			if cfg != nil {
-				currentBlock.TicketID = extractTicketIDFromMessage(commit.Message, cfg.TicketPrefixes)
-			}
-			
+
 			// Get files changed in this commit
-			files, _ := getFilesChanged(commit.Hash)
-			currentBlock.Files = files
-		}
-	}
-	
-	// Add the last block
-	timeBlocks = append(timeBlocks, currentBlock)
-	
-	return timeBlocks
-}
-
-// extractTicketIDFromMessage extracts a ticket ID from a commit message
-func extractTicketIDFromMessage(message string, prefixes []string) string {
-	for _, prefix := range prefixes {
-		if strings.Contains(message, prefix) {
-			parts := strings.Split(message, prefix)
-			if len(parts) > 1 {
-				// Extract the ticket ID (e.g., "123" from "JIRA-123: Fix bug")
-				ticketPart := parts[1]
-				// Find the end of the ticket ID (usually a colon, space, or end of string)
-				endIndex := strings.IndexAny(ticketPart, ": ")
-				if endIndex == -1 {
-					endIndex = len(ticketPart)
-				}
-				return prefix + ticketPart[:endIndex]
+			if files, err := getFilesChanged(".", commit.Hash); err == nil {
+				currentBlock.Files = files
 			}
 		}
 	}
-	return ""
+
+	// Add the last block
+	blocks = append(blocks, currentBlock)
+
+	return blocks
 }
-
-// getFilesChanged gets the files changed in a commit
-func getFilesChanged(hash string) ([]string, error) {
-	cmd := exec.Command("git", "show", "--name-only", "--format=", hash)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-	
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	return lines, nil
-}
-
-func parseTime(timeStr string) (time.Time, error) {
-	// Try parsing with different formats
-	formats := []string{
-		"2006-01-02 15:04:05",
-		"2006-01-02 15:04",
-		time.RFC3339,
-		time.RFC1123,
-	}
-
-	for _, format := range formats {
-		if t, err := time.Parse(format, timeStr); err == nil {
-			return t, nil
-		}
-	}
-
-	// If all formats fail, try parsing as Unix timestamp
-	if unixTime, err := strconv.ParseInt(timeStr, 10, 64); err == nil {
-		return time.Unix(unixTime, 0), nil
-	}
-
-	return time.Time{}, fmt.Errorf("could not parse time: %s", timeStr)
-} 

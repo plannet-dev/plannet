@@ -3,7 +3,6 @@ package config
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 )
 
 // CopyPreference represents user preferences for copy behavior.
@@ -70,4 +69,4 @@ func (c *CopyPreference) UnmarshalJSON(data []byte) error {
 	}
 	*c = parsed
 	return nil
-} 
+}

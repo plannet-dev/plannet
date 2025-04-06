@@ -124,7 +124,7 @@ func TestJiraView(t *testing.T) {
 			Fields struct {
 				Summary     string `json:"summary"`
 				Description string `json:"description"`
-				Status     struct {
+				Status      struct {
 					Name string `json:"name"`
 				} `json:"status"`
 				Type struct {
@@ -144,7 +144,7 @@ func TestJiraView(t *testing.T) {
 			Fields: struct {
 				Summary     string `json:"summary"`
 				Description string `json:"description"`
-				Status     struct {
+				Status      struct {
 					Name string `json:"name"`
 				} `json:"status"`
 				Type struct {
@@ -289,5 +289,5 @@ func TestJiraCreate(t *testing.T) {
 	mockConfig.JiraURL = server.URL
 
 	// Call the function
-	runJiraCreate("Test summary", "Test description", "Task", "TEST")
-} 
+	runJiraCreate()
+}
