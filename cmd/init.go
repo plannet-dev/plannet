@@ -1,30 +1,16 @@
 package cmd
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/manifoldco/promptui"
+	"github.com/plannet-ai/plannet/config"
+	"github.com/plannet-ai/plannet/security"
 	"github.com/spf13/cobra"
 )
-
-// Config represents the Plannet configuration
-type Config struct {
-	TicketPrefixes []string          `json:"ticket_prefixes"`
-	Editor         string            `json:"editor"`
-	GitIntegration bool              `json:"git_integration"`
-	Headers        map[string]string `json:"headers,omitempty"`
-	BaseURL        string            `json:"base_url,omitempty"`
-	Model          string            `json:"model,omitempty"`
-	SystemPrompt   string            `json:"system_prompt,omitempty"`
-	JiraURL        string            `json:"jira_url,omitempty"`
-	JiraToken      string            `json:"jira_token,omitempty"`
-	JiraUser       string            `json:"jira_user,omitempty"`
-	CopyPreference string            `json:"copy_preference"`
-}
 
 // initCmd represents the init command
 var initCmd = &cobra.Command{
@@ -72,7 +58,7 @@ func runInit() {
 	}
 
 	// Create a new config
-	config := Config{
+	cfg := &config.Config{
 		GitIntegration: true, // Default to true
 	}
 
@@ -82,6 +68,12 @@ func runInit() {
 	prefixPrompt := promptui.Prompt{
 		Label:   "Enter ticket prefixes (comma-separated, e.g., JIRA-, DEV-, TICKET-)",
 		Default: "JIRA-",
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("ticket prefixes cannot be empty")
+			}
+			return nil
+		},
 	}
 
 	prefixesStr, err := prefixPrompt.Run()
@@ -95,12 +87,18 @@ func runInit() {
 	for i, prefix := range prefixes {
 		prefixes[i] = strings.TrimSpace(prefix)
 	}
-	config.TicketPrefixes = prefixes
+	cfg.TicketPrefixes = prefixes
 
 	// Ask for preferred editor
 	editorPrompt := promptui.Prompt{
 		Label:   "What editor do you use for manual edits?",
 		Default: "vim",
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("editor cannot be empty")
+			}
+			return nil
+		},
 	}
 
 	editor, err := editorPrompt.Run()
@@ -108,7 +106,7 @@ func runInit() {
 		fmt.Println("Error:", err)
 		return
 	}
-	config.Editor = editor
+	cfg.Editor = editor
 
 	// Ask about git integration
 	gitPrompt := promptui.Select{
@@ -122,7 +120,7 @@ func runInit() {
 		return
 	}
 
-	config.GitIntegration = gitResult == "Yes"
+	cfg.GitIntegration = gitResult == "Yes"
 
 	// Ask about copy preference
 	copyPrompt := promptui.Select{
@@ -141,16 +139,16 @@ func runInit() {
 		return
 	}
 
-	// Map the selection to the appropriate CopyPreference value
+	// Map the selection to the appropriate CopyPreference
 	switch copyResult {
 	case "Ask every time":
-		config.CopyPreference = "ask-every-time"
+		cfg.CopyPreference = config.AskEveryTime
 	case "Ask once per session":
-		config.CopyPreference = "ask-once"
+		cfg.CopyPreference = config.AskOnce
 	case "Copy automatically":
-		config.CopyPreference = "copy-automatically"
+		cfg.CopyPreference = config.CopyAutomatically
 	case "Do not copy":
-		config.CopyPreference = "do-not-copy"
+		cfg.CopyPreference = config.DoNotCopy
 	}
 
 	// Ask about LLM integration
@@ -180,8 +178,8 @@ func runInit() {
 
 		if providerResult == "Plannet (brain.plannet.dev)" {
 			// Set up Plannet LLM
-			config.BaseURL = "https://brain.plannet.dev/v1/completions"
-			config.Model = "plannet-default"
+			cfg.BaseURL = "https://brain.plannet.dev/v1/completions"
+			cfg.Model = "plannet-default"
 
 			fmt.Println("\nTo use Plannet's LLM, you need an API key.")
 			fmt.Println("Visit https://plannet.dev/console to get your API key.")
@@ -189,6 +187,9 @@ func runInit() {
 			apiKeyPrompt := promptui.Prompt{
 				Label: "Enter your Plannet API key",
 				Mask:  '*',
+				Validate: func(input string) error {
+					return security.ValidateAPIKey(input)
+				},
 			}
 
 			apiKey, err := apiKeyPrompt.Run()
@@ -197,8 +198,14 @@ func runInit() {
 				return
 			}
 
+			// Store the API key securely
+			if err := config.SetLLMToken(apiKey); err != nil {
+				fmt.Println("Error storing API key:", err)
+				return
+			}
+
 			// Set up headers with API key
-			config.Headers = map[string]string{
+			cfg.Headers = map[string]string{
 				"Authorization": "Bearer " + apiKey,
 			}
 		} else {
@@ -206,6 +213,9 @@ func runInit() {
 			baseURLPrompt := promptui.Prompt{
 				Label:   "Enter your LLM API endpoint",
 				Default: "http://localhost:1234/v1/completions",
+				Validate: func(input string) error {
+					return security.ValidateURL(input)
+				},
 			}
 
 			baseURL, err := baseURLPrompt.Run()
@@ -213,12 +223,18 @@ func runInit() {
 				fmt.Println("Error:", err)
 				return
 			}
-			config.BaseURL = baseURL
+			cfg.BaseURL = baseURL
 
 			// Ask for model name
 			modelPrompt := promptui.Prompt{
 				Label:   "Enter model name",
 				Default: "gpt-3.5-turbo",
+				Validate: func(input string) error {
+					if input == "" {
+						return fmt.Errorf("model name cannot be empty")
+					}
+					return nil
+				},
 			}
 
 			model, err := modelPrompt.Run()
@@ -226,12 +242,15 @@ func runInit() {
 				fmt.Println("Error:", err)
 				return
 			}
-			config.Model = model
+			cfg.Model = model
 
 			// Ask for API key
 			apiKeyPrompt := promptui.Prompt{
 				Label: "Enter your API key",
 				Mask:  '*',
+				Validate: func(input string) error {
+					return security.ValidateAPIKey(input)
+				},
 			}
 
 			apiKey, err := apiKeyPrompt.Run()
@@ -240,8 +259,14 @@ func runInit() {
 				return
 			}
 
+			// Store the API key securely
+			if err := config.SetLLMToken(apiKey); err != nil {
+				fmt.Println("Error storing API key:", err)
+				return
+			}
+
 			// Set up headers with API key
-			config.Headers = map[string]string{
+			cfg.Headers = map[string]string{
 				"Authorization": "Bearer " + apiKey,
 			}
 		}
@@ -258,7 +283,7 @@ func runInit() {
 		}
 
 		if systemPrompt != "" {
-			config.SystemPrompt = systemPrompt
+			cfg.SystemPrompt = systemPrompt
 		}
 	}
 
@@ -279,6 +304,9 @@ func runInit() {
 		jiraURLPrompt := promptui.Prompt{
 			Label:   "Enter your Jira instance URL",
 			Default: "https://your-instance.atlassian.net",
+			Validate: func(input string) error {
+				return security.ValidateURL(input)
+			},
 		}
 
 		jiraURL, err := jiraURLPrompt.Run()
@@ -286,11 +314,17 @@ func runInit() {
 			fmt.Println("Error:", err)
 			return
 		}
-		config.JiraURL = jiraURL
+		cfg.JiraURL = jiraURL
 
 		// Ask for Jira username/email
 		jiraUserPrompt := promptui.Prompt{
 			Label: "Enter your Jira username/email",
+			Validate: func(input string) error {
+				if input == "" {
+					return fmt.Errorf("username cannot be empty")
+				}
+				return nil
+			},
 		}
 
 		jiraUser, err := jiraUserPrompt.Run()
@@ -298,7 +332,7 @@ func runInit() {
 			fmt.Println("Error:", err)
 			return
 		}
-		config.JiraUser = jiraUser
+		cfg.JiraUser = jiraUser
 
 		// Ask for Jira API token
 		fmt.Println("\nTo use Jira, you need an API token.")
@@ -307,6 +341,9 @@ func runInit() {
 		jiraTokenPrompt := promptui.Prompt{
 			Label: "Enter your Jira API token",
 			Mask:  '*',
+			Validate: func(input string) error {
+				return security.ValidateAPIKey(input)
+			},
 		}
 
 		jiraToken, err := jiraTokenPrompt.Run()
@@ -314,20 +351,17 @@ func runInit() {
 			fmt.Println("Error:", err)
 			return
 		}
-		config.JiraToken = jiraToken
+
+		// Store the Jira token securely
+		if err := config.SetJiraToken(jiraToken); err != nil {
+			fmt.Println("Error storing Jira token:", err)
+			return
+		}
 	}
 
-	// Convert config to JSON
-	configJSON, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		fmt.Println("Error creating configuration:", err)
-		return
-	}
-
-	// Write config to file
-	err = os.WriteFile(configPath, configJSON, 0644)
-	if err != nil {
-		fmt.Println("Error writing configuration file:", err)
+	// Save the configuration
+	if err := config.Save(cfg); err != nil {
+		fmt.Println("Error saving configuration:", err)
 		return
 	}
 
@@ -336,10 +370,8 @@ func runInit() {
 
 	// Display next steps
 	fmt.Println("\nNext steps:")
-	fmt.Println("1. Run 'plannet now' to see what you're currently working on")
-	fmt.Println("2. Run 'plannet track' to manually track work")
-	fmt.Println("3. Run 'plannet status' to see a timeline of your work")
-	fmt.Println("4. Run 'plannet list' to see all tracked work")
-	fmt.Println("5. Run 'plannet complete' to mark work as complete")
-	fmt.Println("6. Run 'plannet export' to export your work data")
+	fmt.Println("1. Start tracking your work with 'plannet track'")
+	fmt.Println("2. Generate content with 'plannet generate'")
+	fmt.Println("3. View your current focus with 'plannet now'")
+	fmt.Println("4. See your work timeline with 'plannet status'")
 }

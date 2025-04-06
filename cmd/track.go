@@ -52,15 +52,14 @@ func runTrack(args []string) {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
+		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
 		return
 	}
 
 	// Check for active work
 	activeWork, err := getActiveWork()
 	if err != nil {
-		fmt.Println("Error checking active work:", err)
+		fmt.Printf("Failed to check active work: %v\n", err)
 		return
 	}
 
@@ -85,10 +84,10 @@ func runTrack(args []string) {
 		index, _, err := prompt.Run()
 		if err != nil {
 			if err == promptui.ErrInterrupt {
-				fmt.Println("\nOperation cancelled.")
+				fmt.Println("\nOperation cancelled by user.")
 				return
 			}
-			fmt.Println("Error:", err)
+			fmt.Printf("Failed to get user selection: %v\n", err)
 			return
 		}
 
@@ -96,16 +95,14 @@ func runTrack(args []string) {
 		case 0: // Complete current work
 			activeWork.EndTime = time.Now()
 			activeWork.Status = "completed"
-			err = saveTrackedWork(*activeWork)
-			if err != nil {
-				fmt.Println("Error completing work:", err)
+			if err := saveTrackedWork(*activeWork); err != nil {
+				fmt.Printf("Failed to complete work: %v\n", err)
 				return
 			}
 		case 1: // Pause current work
 			activeWork.Status = "paused"
-			err = saveTrackedWork(*activeWork)
-			if err != nil {
-				fmt.Println("Error pausing work:", err)
+			if err := saveTrackedWork(*activeWork); err != nil {
+				fmt.Printf("Failed to pause work: %v\n", err)
 				return
 			}
 		case 2: // Cancel new work
@@ -130,10 +127,10 @@ func runTrack(args []string) {
 		result, err := prompt.Run()
 		if err != nil {
 			if err == promptui.ErrInterrupt {
-				fmt.Println("\nOperation cancelled.")
+				fmt.Println("\nOperation cancelled by user.")
 				return
 			}
-			fmt.Println("Error getting description:", err)
+			fmt.Printf("Failed to get work description: %v\n", err)
 			return
 		}
 		description = result
@@ -143,11 +140,17 @@ func runTrack(args []string) {
 	var ticketID string
 	if cfg.GitIntegration {
 		currentDir, err := os.Getwd()
-		if err == nil && isGitRepo(currentDir) {
+		if err != nil {
+			fmt.Printf("Failed to get current directory: %v\n", err)
+			return
+		}
+		if isGitRepo(currentDir) {
 			branch, err := getCurrentBranch()
-			if err == nil {
-				ticketID = extractTicketID(branch, cfg.TicketPrefixes)
+			if err != nil {
+				fmt.Printf("Failed to get current branch: %v\n", err)
+				return
 			}
+			ticketID = extractTicketID(branch, cfg.TicketPrefixes)
 		}
 	}
 
@@ -160,7 +163,7 @@ func runTrack(args []string) {
 		result, err := prompt.Run()
 		if err != nil {
 			if err != promptui.ErrInterrupt && err != promptui.ErrAbort {
-				fmt.Println("Error getting ticket ID:", err)
+				fmt.Printf("Failed to get ticket ID: %v\n", err)
 				return
 			}
 			// If user cancelled, just continue without a ticket ID
@@ -243,18 +246,27 @@ func runTrack(args []string) {
 
 // getActiveWork returns the currently active work, if any
 func getActiveWork() (*TrackedWork, error) {
-	trackedWork, err := getTrackedWork()
+	dbDir, err := getDBDir()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get database directory: %w", err)
 	}
 
-	for _, work := range trackedWork {
-		if work.Status == "active" {
-			return &work, nil
-		}
+	activeFile := filepath.Join(dbDir, "active.json")
+	if _, err := os.Stat(activeFile); os.IsNotExist(err) {
+		return nil, nil
 	}
 
-	return nil, nil
+	data, err := os.ReadFile(activeFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read active work file: %w", err)
+	}
+
+	var work TrackedWork
+	if err := json.Unmarshal(data, &work); err != nil {
+		return nil, fmt.Errorf("failed to parse active work data: %w", err)
+	}
+
+	return &work, nil
 }
 
 // validateTicketID validates a ticket ID against the configured prefixes
@@ -284,31 +296,59 @@ func generateID() string {
 
 // saveTrackedWork saves a piece of tracked work to the database
 func saveTrackedWork(work TrackedWork) error {
-	// Get the database directory
 	dbDir, err := getDBDir()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to get database directory: %w", err)
 	}
 
-	// Create the database directory if it doesn't exist
-	err = os.MkdirAll(dbDir, 0755)
-	if err != nil {
-		return err
+	// Create directory if it doesn't exist
+	if err := os.MkdirAll(dbDir, 0755); err != nil {
+		return fmt.Errorf("failed to create database directory: %w", err)
 	}
 
-	// Create the file path
-	filePath := filepath.Join(dbDir, fmt.Sprintf("%s.json", work.ID))
+	// Save to active.json if work is active or paused
+	if work.Status == "active" || work.Status == "paused" {
+		activeFile := filepath.Join(dbDir, "active.json")
+		data, err := json.MarshalIndent(work, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal work data: %w", err)
+		}
 
-	// Convert to JSON
-	data, err := json.MarshalIndent(work, "", "  ")
-	if err != nil {
-		return err
+		if err := os.WriteFile(activeFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write active work file: %w", err)
+		}
 	}
 
-	// Write to file
-	err = os.WriteFile(filePath, data, 0644)
-	if err != nil {
-		return err
+	// Save to completed.json if work is completed
+	if work.Status == "completed" {
+		completedFile := filepath.Join(dbDir, "completed.json")
+		var completed []TrackedWork
+
+		// Read existing completed work
+		if data, err := os.ReadFile(completedFile); err == nil {
+			if err := json.Unmarshal(data, &completed); err != nil {
+				return fmt.Errorf("failed to parse completed work data: %w", err)
+			}
+		}
+
+		// Append new work
+		completed = append(completed, work)
+
+		// Write back to file
+		data, err := json.MarshalIndent(completed, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to marshal completed work data: %w", err)
+		}
+
+		if err := os.WriteFile(completedFile, data, 0644); err != nil {
+			return fmt.Errorf("failed to write completed work file: %w", err)
+		}
+
+		// Remove from active.json if it exists
+		activeFile := filepath.Join(dbDir, "active.json")
+		if err := os.Remove(activeFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("failed to remove active work file: %w", err)
+		}
 	}
 
 	return nil
@@ -318,7 +358,9 @@ func saveTrackedWork(work TrackedWork) error {
 func getDBDir() (string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get user home directory: %w", err)
 	}
-	return filepath.Join(homeDir, ".plannet", "db"), nil
+
+	dbDir := filepath.Join(homeDir, ".plannet", "db")
+	return dbDir, nil
 }

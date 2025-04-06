@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/plannet-ai/plannet/security"
 )
 
 // Config represents the Plannet configuration
@@ -17,9 +19,10 @@ type Config struct {
 	Model          string            `json:"model,omitempty"`
 	SystemPrompt   string            `json:"system_prompt,omitempty"`
 	JiraURL        string            `json:"jira_url,omitempty"`
-	JiraToken      string            `json:"jira_token,omitempty"`
 	JiraUser       string            `json:"jira_user,omitempty"`
 	CopyPreference CopyPreference    `json:"copy_preference,omitempty"`
+	// JiraToken is no longer stored directly in the config
+	// It will be stored securely using the TokenStorage
 }
 
 var (
@@ -27,6 +30,10 @@ var (
 	globalConfig *Config
 	// Config file path
 	configPath string
+	// Token storage
+	tokenStorage *security.TokenStorage
+	// Base directory for file operations
+	baseDir string
 )
 
 func init() {
@@ -37,6 +44,14 @@ func init() {
 		homeDir = "."
 	}
 	configPath = filepath.Join(homeDir, ".plannetrc")
+	baseDir = homeDir
+
+	// Initialize token storage
+	var initErr error
+	tokenStorage, initErr = security.NewTokenStorage()
+	if initErr != nil {
+		fmt.Printf("Warning: Failed to initialize secure token storage: %v\n", initErr)
+	}
 }
 
 // Load loads the configuration from the .plannetrc file
@@ -51,8 +66,8 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("configuration file not found. Run 'plannet init' to create one")
 	}
 
-	// Read the config file
-	configData, err := os.ReadFile(configPath)
+	// Read the config file safely
+	configData, err := security.SafeReadFile(baseDir, configPath)
 	if err != nil {
 		return nil, fmt.Errorf("error reading configuration file: %w", err)
 	}
@@ -76,8 +91,8 @@ func Save(config *Config) error {
 		return fmt.Errorf("error creating configuration: %w", err)
 	}
 
-	// Write config to file
-	if err := os.WriteFile(configPath, configJSON, 0644); err != nil {
+	// Write config to file safely
+	if err := security.SafeWriteFile(baseDir, configPath, configJSON, 0644); err != nil {
 		return fmt.Errorf("error writing configuration file: %w", err)
 	}
 
@@ -110,4 +125,36 @@ func SetConfigPath(path string) {
 func IsInitialized() bool {
 	_, err := os.Stat(configPath)
 	return !os.IsNotExist(err)
+}
+
+// GetJiraToken retrieves the Jira API token from secure storage
+func GetJiraToken() (string, error) {
+	if tokenStorage == nil {
+		return "", fmt.Errorf("token storage not initialized")
+	}
+	return tokenStorage.GetToken("jira")
+}
+
+// SetJiraToken stores the Jira API token in secure storage
+func SetJiraToken(token string) error {
+	if tokenStorage == nil {
+		return fmt.Errorf("token storage not initialized")
+	}
+	return tokenStorage.StoreToken("jira", token)
+}
+
+// GetLLMToken retrieves the LLM API token from secure storage
+func GetLLMToken() (string, error) {
+	if tokenStorage == nil {
+		return "", fmt.Errorf("token storage not initialized")
+	}
+	return tokenStorage.GetToken("llm")
+}
+
+// SetLLMToken stores the LLM API token in secure storage
+func SetLLMToken(token string) error {
+	if tokenStorage == nil {
+		return fmt.Errorf("token storage not initialized")
+	}
+	return tokenStorage.StoreToken("llm", token)
 }

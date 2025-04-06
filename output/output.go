@@ -44,7 +44,17 @@ func (m *Manager) HandleOutput(output string) error {
 
 // shouldCopyBasedOnPreference determines whether to copy based on CopyPreference
 func (m *Manager) shouldCopyBasedOnPreference() bool {
-	switch m.config.CopyPreference {
+	// Get the string value of the preference
+	prefValue := m.config.CopyPreference.String()
+
+	// Parse the string preference into a CopyPreference type
+	pref, err := config.ParseCopyPreference(prefValue)
+	if err != nil {
+		// If parsing fails, default to asking every time
+		return m.promptForCopy()
+	}
+
+	switch pref {
 	case config.AskOnce:
 		return m.shouldCopyForSession()
 	case config.CopyAutomatically:

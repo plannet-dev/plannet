@@ -9,17 +9,19 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/plannet-ai/plannet/config"
+	"github.com/plannet-ai/plannet/security"
 	"github.com/spf13/cobra"
 )
 
 // LLMRequest represents a request to the LLM API
 type LLMRequest struct {
-	Model       string   `json:"model"`
+	Model       string    `json:"model"`
 	Messages    []Message `json:"messages"`
-	Temperature float64  `json:"temperature,omitempty"`
-	MaxTokens   int      `json:"max_tokens,omitempty"`
+	Temperature float64   `json:"temperature,omitempty"`
+	MaxTokens   int       `json:"max_tokens,omitempty"`
 }
 
 // Message represents a message in the LLM conversation
@@ -100,18 +102,17 @@ func runLLMInteractive() {
 	}
 
 	// Start interactive loop
+	reader := bufio.NewReader(os.Stdin)
 	for {
-		// Prompt for user input
 		fmt.Print("You: ")
-		reader := bufio.NewReader(os.Stdin)
 		input, err := reader.ReadString('\n')
-		if err != nil && err != io.EOF {
+		if err != nil {
 			fmt.Println("Error reading input:", err)
 			return
 		}
 		input = strings.TrimSpace(input)
 
-		// Check if user wants to exit
+		// Check for exit command
 		if input == "exit" {
 			break
 		}
@@ -210,8 +211,15 @@ func sendLLMRequest(cfg *config.Config, messages []Message) (*LLMResponse, error
 		return nil, fmt.Errorf("error creating request body: %w", err)
 	}
 
-	// Create HTTP client
-	client := &http.Client{}
+	// Get LLM token from secure storage
+	llmToken, err := config.GetLLMToken()
+	if err != nil {
+		return nil, fmt.Errorf("error getting LLM token: %w", err)
+	}
+
+	// Create HTTP client with rate limiting
+	rateLimiter := security.NewHTTPRateLimiter(5, time.Minute) // 5 requests per minute
+	client := rateLimiter.WrapHTTPClient(&http.Client{}, "llm")
 
 	// Create request
 	req, err := http.NewRequest("POST", cfg.BaseURL, bytes.NewBuffer(jsonBody))
@@ -224,6 +232,7 @@ func sendLLMRequest(cfg *config.Config, messages []Message) (*LLMResponse, error
 		req.Header.Set(key, value)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+llmToken)
 
 	// Send request
 	resp, err := client.Do(req)
@@ -245,4 +254,4 @@ func sendLLMRequest(cfg *config.Config, messages []Message) (*LLMResponse, error
 	}
 
 	return &response, nil
-} 
+}

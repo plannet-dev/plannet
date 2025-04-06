@@ -6,10 +6,14 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
+
+	"regexp"
 
 	"github.com/manifoldco/promptui"
-	"github.com/spf13/cobra"
 	"github.com/plannet-ai/plannet/config"
+	"github.com/plannet-ai/plannet/security"
+	"github.com/spf13/cobra"
 )
 
 // JiraTicket represents a Jira ticket
@@ -63,37 +67,44 @@ func runJiraList() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
+		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
 		return
 	}
 
 	// Check if Jira integration is configured
-	if cfg.JiraURL == "" || cfg.JiraToken == "" || cfg.JiraUser == "" {
+	if cfg.JiraURL == "" || cfg.JiraUser == "" {
 		fmt.Println("Jira integration is not configured.")
 		fmt.Println("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
-	// Create HTTP client
-	client := &http.Client{}
+	// Get Jira token from secure storage
+	jiraToken, err := config.GetJiraToken()
+	if err != nil {
+		fmt.Printf("Failed to get Jira token: %v\n", err)
+		return
+	}
+
+	// Create HTTP client with rate limiting
+	rateLimiter := security.NewHTTPRateLimiter(10, time.Minute) // 10 requests per minute
+	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
 	url := fmt.Sprintf("%s/rest/api/2/search?jql=assignee=%s+ORDER+BY+updated+DESC", cfg.JiraURL, cfg.JiraUser)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Println("Error creating request:", err)
+		fmt.Printf("Failed to create Jira API request: %v\n", err)
 		return
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+cfg.JiraToken)
+	req.Header.Set("Authorization", "Basic "+jiraToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
+		fmt.Printf("Failed to send Jira API request: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -101,91 +112,81 @@ func runJiraList() {
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error: Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
 		return
 	}
 
 	// Parse response
 	var result struct {
-		Issues []struct {
-			Key    string `json:"key"`
-			Fields struct {
-				Summary     string `json:"summary"`
-				Status     struct {
-					Name string `json:"name"`
-				} `json:"status"`
-				Type struct {
-					Name string `json:"name"`
-				} `json:"type"`
-				Priority struct {
-					Name string `json:"name"`
-				} `json:"priority"`
-				Assignee struct {
-					DisplayName string `json:"displayName"`
-				} `json:"assignee"`
-			} `json:"fields"`
-		} `json:"issues"`
+		Issues []JiraTicket `json:"issues"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Println("Error parsing response:", err)
+		fmt.Printf("Failed to parse Jira API response: %v\n", err)
 		return
 	}
 
 	// Display tickets
 	if len(result.Issues) == 0 {
-		fmt.Println("No Jira tickets found.")
+		fmt.Println("No tickets found.")
 		return
 	}
 
 	fmt.Println("Your Jira tickets:")
 	fmt.Println("-----------------")
-	for _, issue := range result.Issues {
-		fmt.Printf("%s: %s\n", issue.Key, issue.Fields.Summary)
-		fmt.Printf("  Status: %s, Type: %s, Priority: %s\n", 
-			issue.Fields.Status.Name, 
-			issue.Fields.Type.Name, 
-			issue.Fields.Priority.Name)
-		fmt.Printf("  URL: %s/browse/%s\n\n", cfg.JiraURL, issue.Key)
+	for _, ticket := range result.Issues {
+		fmt.Printf("%s: %s (%s)\n", ticket.Key, ticket.Summary, ticket.Status)
 	}
 }
 
-// runJiraView displays details of a specific Jira ticket
+// runJiraView views a specific Jira ticket
 func runJiraView(ticketKey string) {
+	// Validate ticket key
+	if err := security.ValidateTicketKey(ticketKey); err != nil {
+		fmt.Printf("Invalid ticket key: %v\n", err)
+		return
+	}
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
+		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
 		return
 	}
 
 	// Check if Jira integration is configured
-	if cfg.JiraURL == "" || cfg.JiraToken == "" || cfg.JiraUser == "" {
+	if cfg.JiraURL == "" || cfg.JiraUser == "" {
 		fmt.Println("Jira integration is not configured.")
 		fmt.Println("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
-	// Create HTTP client
-	client := &http.Client{}
+	// Get Jira token from secure storage
+	jiraToken, err := config.GetJiraToken()
+	if err != nil {
+		fmt.Printf("Failed to get Jira token: %v\n", err)
+		return
+	}
+
+	// Create HTTP client with rate limiting
+	rateLimiter := security.NewHTTPRateLimiter(10, time.Minute) // 10 requests per minute
+	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
 	url := fmt.Sprintf("%s/rest/api/2/issue/%s", cfg.JiraURL, ticketKey)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Println("Error creating request:", err)
+		fmt.Printf("Failed to create Jira API request: %v\n", err)
 		return
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+cfg.JiraToken)
+	req.Header.Set("Authorization", "Basic "+jiraToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
+		fmt.Printf("Failed to send Jira API request: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -193,55 +194,27 @@ func runJiraView(ticketKey string) {
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error: Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
 		return
 	}
 
 	// Parse response
-	var issue struct {
-		Key    string `json:"key"`
-		Fields struct {
-			Summary     string `json:"summary"`
-			Description string `json:"description"`
-			Status     struct {
-				Name string `json:"name"`
-			} `json:"status"`
-			Type struct {
-				Name string `json:"name"`
-			} `json:"type"`
-			Priority struct {
-				Name string `json:"name"`
-			} `json:"priority"`
-			Assignee struct {
-				DisplayName string `json:"displayName"`
-			} `json:"assignee"`
-			Created string `json:"created"`
-			Updated string `json:"updated"`
-		} `json:"fields"`
-	}
-
-	if err := json.NewDecoder(resp.Body).Decode(&issue); err != nil {
-		fmt.Println("Error parsing response:", err)
+	var ticket JiraTicket
+	if err := json.NewDecoder(resp.Body).Decode(&ticket); err != nil {
+		fmt.Printf("Failed to parse Jira API response: %v\n", err)
 		return
 	}
 
 	// Display ticket details
-	fmt.Printf("Ticket: %s\n", issue.Key)
-	fmt.Printf("Summary: %s\n", issue.Fields.Summary)
-	fmt.Printf("Status: %s\n", issue.Fields.Status.Name)
-	fmt.Printf("Type: %s\n", issue.Fields.Type.Name)
-	fmt.Printf("Priority: %s\n", issue.Fields.Priority.Name)
-	fmt.Printf("Assignee: %s\n", issue.Fields.Assignee.DisplayName)
-	fmt.Printf("Created: %s\n", issue.Fields.Created)
-	fmt.Printf("Updated: %s\n", issue.Fields.Updated)
-	fmt.Printf("URL: %s/browse/%s\n\n", cfg.JiraURL, issue.Key)
-
-	// Display description
-	if issue.Fields.Description != "" {
-		fmt.Println("Description:")
-		fmt.Println("------------")
-		fmt.Println(issue.Fields.Description)
-	}
+	fmt.Printf("Ticket: %s\n", ticket.Key)
+	fmt.Printf("Summary: %s\n", ticket.Summary)
+	fmt.Printf("Status: %s\n", ticket.Status)
+	fmt.Printf("Type: %s\n", ticket.Type)
+	fmt.Printf("Priority: %s\n", ticket.Priority)
+	fmt.Printf("Assignee: %s\n", ticket.Assignee)
+	fmt.Printf("URL: %s\n", ticket.URL)
+	fmt.Println("\nDescription:")
+	fmt.Println(ticket.Description)
 }
 
 // runJiraCreate creates a new Jira ticket
@@ -249,56 +222,87 @@ func runJiraCreate() {
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
+		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
 		return
 	}
 
 	// Check if Jira integration is configured
-	if cfg.JiraURL == "" || cfg.JiraToken == "" || cfg.JiraUser == "" {
+	if cfg.JiraURL == "" || cfg.JiraUser == "" {
 		fmt.Println("Jira integration is not configured.")
 		fmt.Println("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
-	// Prompt for ticket details
-	prompt := promptui.Prompt{
-		Label: "Project key (e.g., PROJ)",
+	// Get Jira token from secure storage
+	jiraToken, err := config.GetJiraToken()
+	if err != nil {
+		fmt.Printf("Failed to get Jira token: %v\n", err)
+		return
 	}
 
-	projectKey, err := prompt.Run()
+	// Ask for project key
+	projectPrompt := promptui.Prompt{
+		Label: "Enter project key (e.g., PROJ)",
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("project key cannot be empty")
+			}
+			// Project keys are typically uppercase letters and numbers
+			pattern := regexp.MustCompile(`^[A-Z0-9]+$`)
+			if !pattern.MatchString(input) {
+				return fmt.Errorf("project key must contain only uppercase letters and numbers")
+			}
+			return nil
+		},
+	}
+
+	projectKey, err := projectPrompt.Run()
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
 	}
 
-	prompt = promptui.Prompt{
-		Label: "Summary",
-	}
-
-	summary, err := prompt.Run()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	prompt = promptui.Prompt{
-		Label: "Description",
-	}
-
-	description, err := prompt.Run()
-	if err != nil {
-		fmt.Println("Error:", err)
-		return
-	}
-
-	// Prompt for issue type
-	typePrompt := promptui.Select{
-		Label: "Issue type",
+	// Ask for issue type
+	issueTypePrompt := promptui.Select{
+		Label: "Select issue type",
 		Items: []string{"Task", "Bug", "Story", "Epic"},
 	}
 
-	_, issueType, err := typePrompt.Run()
+	_, issueType, err := issueTypePrompt.Run()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	// Ask for summary
+	summaryPrompt := promptui.Prompt{
+		Label: "Enter summary",
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("summary cannot be empty")
+			}
+			return nil
+		},
+	}
+
+	summary, err := summaryPrompt.Run()
+	if err != nil {
+		fmt.Println("Error:", err)
+		return
+	}
+
+	// Ask for description
+	descriptionPrompt := promptui.Prompt{
+		Label: "Enter description",
+		Validate: func(input string) error {
+			if input == "" {
+				return fmt.Errorf("description cannot be empty")
+			}
+			return nil
+		},
+	}
+
+	description, err := descriptionPrompt.Run()
 	if err != nil {
 		fmt.Println("Error:", err)
 		return
@@ -321,29 +325,30 @@ func runJiraCreate() {
 	// Convert to JSON
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
-		fmt.Println("Error creating request body:", err)
+		fmt.Printf("Failed to create request body: %v\n", err)
 		return
 	}
 
-	// Create HTTP client
-	client := &http.Client{}
+	// Create HTTP client with rate limiting
+	rateLimiter := security.NewHTTPRateLimiter(10, time.Minute) // 10 requests per minute
+	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
 	url := fmt.Sprintf("%s/rest/api/2/issue", cfg.JiraURL)
 	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
 	if err != nil {
-		fmt.Println("Error creating request:", err)
+		fmt.Printf("Failed to create Jira API request: %v\n", err)
 		return
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+cfg.JiraToken)
+	req.Header.Set("Authorization", "Basic "+jiraToken)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("Error sending request:", err)
+		fmt.Printf("Failed to send Jira API request: %v\n", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -351,7 +356,7 @@ func runJiraCreate() {
 	// Check response status
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Error: Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
 		return
 	}
 
@@ -359,13 +364,10 @@ func runJiraCreate() {
 	var result struct {
 		Key string `json:"key"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Println("Error parsing response:", err)
+		fmt.Printf("Failed to parse Jira API response: %v\n", err)
 		return
 	}
 
-	// Display success message
 	fmt.Printf("Ticket created successfully: %s\n", result.Key)
-	fmt.Printf("URL: %s/browse/%s\n", cfg.JiraURL, result.Key)
-} 
+}
