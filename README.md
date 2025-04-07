@@ -162,3 +162,136 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Uses [Cobra](https://github.com/spf13/cobra) for CLI commands
 - Uses [promptui](https://github.com/manifoldco/promptui) for interactive prompts
 - Uses [fatih/color](https://github.com/fatih/color) for terminal colors
+
+# Plannet
+
+Plannet is a command-line tool for managing your daily tasks and projects. It integrates with various services like Jira and LLMs to help you stay organized and productive.
+
+## Features
+
+- Task management with ticket prefixes
+- Jira integration for viewing and creating tickets
+- LLM integration for getting help with tasks
+- Git integration for managing branches
+- Secure storage for API tokens
+- Rate limiting for API calls
+- Input validation and file path sanitization
+
+## Installation
+
+### Prerequisites
+
+- Go 1.21 or later
+- Git (optional, for git integration)
+
+### Building from Source
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/plannet-ai/plannet.git
+cd plannet
+```
+
+2. Build the project:
+
+```bash
+go build
+```
+
+3. Add plannet to your PATH:
+
+```bash
+# For bash/zsh (add to ~/.bashrc or ~/.zshrc)
+export PATH=$PATH:$(pwd)
+
+# For fish (add to ~/.config/fish/config.fish)
+set -gx PATH $PATH (pwd)
+```
+
+## Usage
+
+### Initial Setup
+
+Run the initialization command to set up your configuration:
+
+```bash
+plannet init
+```
+
+This will guide you through setting up:
+
+- Ticket prefixes for your projects
+- Editor preferences
+- Git integration settings
+- Jira integration
+- LLM integration
+
+### Managing Tasks
+
+Create a new task:
+
+```bash
+plannet task "Implement user authentication"
+```
+
+List your tasks:
+
+```bash
+plannet list
+```
+
+### Jira Integration
+
+View your Jira tickets:
+
+```bash
+plannet jira list
+```
+
+View a specific ticket:
+
+```bash
+plannet jira view PROJ-123
+```
+
+Create a new ticket:
+
+```bash
+plannet jira create
+```
+
+### LLM Integration
+
+Start an interactive session with the LLM:
+
+```bash
+plannet llm
+```
+
+Send a single prompt:
+
+```bash
+plannet llm --prompt "How do I implement rate limiting in Go?"
+```
+
+## Configuration
+
+The configuration file is stored at `~/.plannetrc`. It contains your preferences and settings for various integrations.
+
+## Security
+
+Plannet implements several security features:
+
+- Secure storage for API tokens using AES-GCM encryption
+- Rate limiting for API calls to prevent abuse
+- Input validation to prevent injection attacks
+- File path sanitization to prevent path traversal attacks
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

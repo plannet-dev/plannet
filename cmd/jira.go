@@ -1,17 +1,18 @@
 package cmd
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
-	"time"
-
 	"regexp"
+	"time"
 
 	"github.com/manifoldco/promptui"
 	"github.com/plannet-ai/plannet/config"
+	"github.com/plannet-ai/plannet/logger"
 	"github.com/plannet-ai/plannet/security"
 	"github.com/spf13/cobra"
 )
@@ -31,57 +32,79 @@ type JiraTicket struct {
 
 // jiraCmd represents the jira command
 var jiraCmd = &cobra.Command{
-	Use:   "jira [subcommand]",
-	Short: "Interact with Jira tickets",
-	Long: `Interact with Jira tickets.
-This command allows you to view, create, and update Jira tickets directly from the command line.`,
+	Use:   "jira",
+	Short: "Interact with Jira",
+	Long: `Interact with Jira to view and manage tickets.
+This command allows you to list your assigned tickets, view ticket details,
+and create new tickets.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
-			runJiraList()
-		} else {
-			switch args[0] {
-			case "list":
-				runJiraList()
-			case "view":
-				if len(args) < 2 {
-					fmt.Println("Error: Please provide a ticket key (e.g., JIRA-123)")
-					return
-				}
-				runJiraView(args[1])
-			case "create":
-				runJiraCreate()
-			default:
-				fmt.Printf("Unknown subcommand: %s\n", args[0])
-				fmt.Println("Available subcommands: list, view, create")
-			}
-		}
+		log := logger.WithContext(cmd.Context())
+		log.Info("Use one of the subcommands: list, view, create")
+		cmd.Help()
+	},
+}
+
+// jiraListCmd represents the jira list command
+var jiraListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List your Jira tickets",
+	Long:  `List all Jira tickets assigned to you.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		runJiraList(cmd.Context())
+	},
+}
+
+// jiraViewCmd represents the jira view command
+var jiraViewCmd = &cobra.Command{
+	Use:   "view [ticket]",
+	Short: "View a Jira ticket",
+	Long:  `View details of a specific Jira ticket.`,
+	Args:  cobra.ExactArgs(1),
+	Run: func(cmd *cobra.Command, args []string) {
+		runJiraView(cmd.Context(), args[0])
+	},
+}
+
+// jiraCreateCmd represents the jira create command
+var jiraCreateCmd = &cobra.Command{
+	Use:   "create",
+	Short: "Create a new Jira ticket",
+	Long:  `Create a new Jira ticket with the specified details.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		runJiraCreate(cmd.Context())
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(jiraCmd)
+	jiraCmd.AddCommand(jiraListCmd)
+	jiraCmd.AddCommand(jiraViewCmd)
+	jiraCmd.AddCommand(jiraCreateCmd)
 }
 
-// runJiraList lists the user's assigned Jira tickets
-func runJiraList() {
+// runJiraList lists all Jira tickets assigned to you
+func runJiraList(ctx context.Context) {
+	log := logger.WithContext(ctx)
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
+		log.Error("Failed to load configuration: %v", err)
+		log.Info("Run 'plannet init' to set up your configuration.")
 		return
 	}
 
 	// Check if Jira integration is configured
 	if cfg.JiraURL == "" || cfg.JiraUser == "" {
-		fmt.Println("Jira integration is not configured.")
-		fmt.Println("Run 'plannet init' to set up Jira integration.")
+		log.Error("Jira integration is not configured")
+		log.Info("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
 	// Get Jira token from secure storage
 	jiraToken, err := config.GetJiraToken()
 	if err != nil {
-		fmt.Printf("Failed to get Jira token: %v\n", err)
+		log.Error("Failed to get Jira token: %v", err)
 		return
 	}
 
@@ -90,10 +113,10 @@ func runJiraList() {
 	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
-	url := fmt.Sprintf("%s/rest/api/2/search?jql=assignee=%s+ORDER+BY+updated+DESC", cfg.JiraURL, cfg.JiraUser)
+	url := cfg.JiraURL + "/rest/api/2/search?jql=assignee=" + cfg.JiraUser + "+ORDER+BY+updated+DESC"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("Failed to create Jira API request: %v\n", err)
+		log.Error("Failed to create Jira API request: %v", err)
 		return
 	}
 
@@ -102,9 +125,9 @@ func runJiraList() {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	resp, err := client.Do(req)
+	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		fmt.Printf("Failed to send Jira API request: %v\n", err)
+		log.Error("Failed to send Jira API request: %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -112,7 +135,7 @@ func runJiraList() {
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		log.Error("Jira API returned status %d: %s", resp.StatusCode, string(body))
 		return
 	}
 
@@ -121,49 +144,52 @@ func runJiraList() {
 		Issues []JiraTicket `json:"issues"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Printf("Failed to parse Jira API response: %v\n", err)
+		log.Error("Failed to parse Jira API response: %v", err)
 		return
 	}
 
 	// Display tickets
 	if len(result.Issues) == 0 {
-		fmt.Println("No tickets found.")
+		log.Info("No tickets found.")
 		return
 	}
 
-	fmt.Println("Your Jira tickets:")
-	fmt.Println("-----------------")
+	log.Info("Your Jira tickets:")
+	log.Info("-----------------")
 	for _, ticket := range result.Issues {
-		fmt.Printf("%s: %s (%s)\n", ticket.Key, ticket.Summary, ticket.Status)
+		log.Info("%s: %s (%s)", ticket.Key, ticket.Summary, ticket.Status)
 	}
 }
 
 // runJiraView views a specific Jira ticket
-func runJiraView(ticketKey string) {
+func runJiraView(ctx context.Context, ticketKey string) {
+	log := logger.WithContext(ctx)
+
 	// Validate ticket key
 	if err := security.ValidateTicketKey(ticketKey); err != nil {
-		fmt.Printf("Invalid ticket key: %v\n", err)
+		log.Error("Invalid ticket key: %v", err)
 		return
 	}
 
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
+		log.Error("Failed to load configuration: %v", err)
+		log.Info("Run 'plannet init' to set up your configuration.")
 		return
 	}
 
 	// Check if Jira integration is configured
 	if cfg.JiraURL == "" || cfg.JiraUser == "" {
-		fmt.Println("Jira integration is not configured.")
-		fmt.Println("Run 'plannet init' to set up Jira integration.")
+		log.Error("Jira integration is not configured")
+		log.Info("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
 	// Get Jira token from secure storage
 	jiraToken, err := config.GetJiraToken()
 	if err != nil {
-		fmt.Printf("Failed to get Jira token: %v\n", err)
+		log.Error("Failed to get Jira token: %v", err)
 		return
 	}
 
@@ -172,10 +198,10 @@ func runJiraView(ticketKey string) {
 	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
-	url := fmt.Sprintf("%s/rest/api/2/issue/%s", cfg.JiraURL, ticketKey)
+	url := cfg.JiraURL + "/rest/api/2/issue/" + ticketKey
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		fmt.Printf("Failed to create Jira API request: %v\n", err)
+		log.Error("Failed to create Jira API request: %v", err)
 		return
 	}
 
@@ -184,9 +210,9 @@ func runJiraView(ticketKey string) {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	resp, err := client.Do(req)
+	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		fmt.Printf("Failed to send Jira API request: %v\n", err)
+		log.Error("Failed to send Jira API request: %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -194,49 +220,52 @@ func runJiraView(ticketKey string) {
 	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		log.Error("Jira API returned status %d: %s", resp.StatusCode, string(body))
 		return
 	}
 
 	// Parse response
 	var ticket JiraTicket
 	if err := json.NewDecoder(resp.Body).Decode(&ticket); err != nil {
-		fmt.Printf("Failed to parse Jira API response: %v\n", err)
+		log.Error("Failed to parse Jira API response: %v", err)
 		return
 	}
 
 	// Display ticket details
-	fmt.Printf("Ticket: %s\n", ticket.Key)
-	fmt.Printf("Summary: %s\n", ticket.Summary)
-	fmt.Printf("Status: %s\n", ticket.Status)
-	fmt.Printf("Type: %s\n", ticket.Type)
-	fmt.Printf("Priority: %s\n", ticket.Priority)
-	fmt.Printf("Assignee: %s\n", ticket.Assignee)
-	fmt.Printf("URL: %s\n", ticket.URL)
-	fmt.Println("\nDescription:")
-	fmt.Println(ticket.Description)
+	log.Info("Ticket: %s", ticket.Key)
+	log.Info("Summary: %s", ticket.Summary)
+	log.Info("Status: %s", ticket.Status)
+	log.Info("Type: %s", ticket.Type)
+	log.Info("Priority: %s", ticket.Priority)
+	log.Info("Assignee: %s", ticket.Assignee)
+	log.Info("URL: %s", ticket.URL)
+	log.Info("\nDescription:")
+	log.Info(ticket.Description)
 }
 
 // runJiraCreate creates a new Jira ticket
-func runJiraCreate() {
+func runJiraCreate(ctx context.Context) {
+	log := logger.WithContext(ctx)
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Printf("Failed to load configuration: %v\nRun 'plannet init' to set up your configuration.\n", err)
+		log.Error("Failed to load configuration: %v", err)
+		log.Info("Run 'plannet init' to set up your configuration.")
 		return
 	}
 
 	// Check if Jira integration is configured
 	if cfg.JiraURL == "" || cfg.JiraUser == "" {
-		fmt.Println("Jira integration is not configured.")
-		fmt.Println("Run 'plannet init' to set up Jira integration.")
+		log.Error("Jira integration is not configured")
+		log.Info("Run 'plannet init' to set up Jira integration.")
 		return
 	}
 
 	// Get Jira token from secure storage
 	jiraToken, err := config.GetJiraToken()
 	if err != nil {
-		fmt.Printf("Failed to get Jira token: %v\n", err)
+		log.Error("Failed to get Jira token: %v", err)
 		return
 	}
 
@@ -258,7 +287,7 @@ func runJiraCreate() {
 
 	projectKey, err := projectPrompt.Run()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Error("Error: %v", err)
 		return
 	}
 
@@ -270,7 +299,7 @@ func runJiraCreate() {
 
 	_, issueType, err := issueTypePrompt.Run()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Error("Error: %v", err)
 		return
 	}
 
@@ -287,45 +316,39 @@ func runJiraCreate() {
 
 	summary, err := summaryPrompt.Run()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Error("Error: %v", err)
 		return
 	}
 
 	// Ask for description
 	descriptionPrompt := promptui.Prompt{
 		Label: "Enter description",
-		Validate: func(input string) error {
-			if input == "" {
-				return fmt.Errorf("description cannot be empty")
-			}
-			return nil
-		},
 	}
 
 	description, err := descriptionPrompt.Run()
 	if err != nil {
-		fmt.Println("Error:", err)
+		log.Error("Error: %v", err)
 		return
 	}
 
-	// Create request body
-	requestBody := map[string]interface{}{
+	// Create ticket
+	ticket := map[string]interface{}{
 		"fields": map[string]interface{}{
 			"project": map[string]string{
 				"key": projectKey,
 			},
-			"summary":     summary,
-			"description": description,
 			"issuetype": map[string]string{
 				"name": issueType,
 			},
+			"summary":     summary,
+			"description": description,
 		},
 	}
 
-	// Convert to JSON
-	jsonBody, err := json.Marshal(requestBody)
+	// Marshal ticket data
+	ticketData, err := json.Marshal(ticket)
 	if err != nil {
-		fmt.Printf("Failed to create request body: %v\n", err)
+		log.Error("Failed to marshal ticket data: %v", err)
 		return
 	}
 
@@ -334,10 +357,10 @@ func runJiraCreate() {
 	client := rateLimiter.WrapHTTPClient(&http.Client{}, "jira")
 
 	// Create request
-	url := fmt.Sprintf("%s/rest/api/2/issue", cfg.JiraURL)
-	req, err := http.NewRequest("POST", url, strings.NewReader(string(jsonBody)))
+	url := cfg.JiraURL + "/rest/api/2/issue"
+	req, err := http.NewRequest("POST", url, bytes.NewReader(ticketData))
 	if err != nil {
-		fmt.Printf("Failed to create Jira API request: %v\n", err)
+		log.Error("Failed to create Jira API request: %v", err)
 		return
 	}
 
@@ -346,9 +369,9 @@ func runJiraCreate() {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
-	resp, err := client.Do(req)
+	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
-		fmt.Printf("Failed to send Jira API request: %v\n", err)
+		log.Error("Failed to send Jira API request: %v", err)
 		return
 	}
 	defer resp.Body.Close()
@@ -356,7 +379,7 @@ func runJiraCreate() {
 	// Check response status
 	if resp.StatusCode != http.StatusCreated {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("Jira API returned status %d: %s\n", resp.StatusCode, string(body))
+		log.Error("Jira API returned status %d: %s", resp.StatusCode, string(body))
 		return
 	}
 
@@ -365,9 +388,10 @@ func runJiraCreate() {
 		Key string `json:"key"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Printf("Failed to parse Jira API response: %v\n", err)
+		log.Error("Failed to parse Jira API response: %v", err)
 		return
 	}
 
-	fmt.Printf("Ticket created successfully: %s\n", result.Key)
+	log.Info("Successfully created ticket %s", result.Key)
+	log.Info("URL: %s/browse/%s", cfg.JiraURL, result.Key)
 }

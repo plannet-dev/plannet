@@ -1,9 +1,11 @@
 package cmd
 
 import (
-	"fmt"
+	"context"
 	"os"
 
+	"github.com/google/uuid"
+	"github.com/plannet-ai/plannet/logger"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +26,20 @@ and backlog from where you work, the command line.
 It tracks what you're working on, even when it doesn't make it into Jira or other
 ticketing systems. No more un-tracked side quests.`,
 	Version: Version,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// Create a context with trace ID
+		ctx := context.WithValue(cmd.Context(), "trace_id", uuid.New().String())
+		cmd.SetContext(ctx)
+
+		// Set debug level if flag is set
+		if debug {
+			logger.SetLevel(logger.DebugLevel)
+			logger.Debug("Debug mode enabled")
+		}
+	},
 	Run: func(cmd *cobra.Command, args []string) {
+		log := logger.WithContext(cmd.Context())
+		log.Info("Plannet version %s", Version)
 		cmd.Help()
 	},
 }
@@ -32,8 +47,12 @@ ticketing systems. No more un-tracked side quests.`,
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() error {
+	// Create initial context
+	ctx := context.Background()
+	rootCmd.SetContext(ctx)
+
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Println(err)
+		logger.WithContext(ctx).Error("Failed to execute command: %v", err)
 		os.Exit(1)
 	}
 	return nil

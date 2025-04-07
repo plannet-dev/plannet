@@ -1,257 +1,173 @@
 package cmd
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/plannet-ai/plannet/config"
+	"github.com/plannet-ai/plannet/logger"
 	"github.com/plannet-ai/plannet/security"
 	"github.com/spf13/cobra"
 )
 
-// LLMRequest represents a request to the LLM API
-type LLMRequest struct {
-	Model       string    `json:"model"`
-	Messages    []Message `json:"messages"`
-	Temperature float64   `json:"temperature,omitempty"`
-	MaxTokens   int       `json:"max_tokens,omitempty"`
-}
-
-// Message represents a message in the LLM conversation
+// Message represents a message in the conversation
 type Message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
 }
 
-// LLMResponse represents a response from the LLM API
-type LLMResponse struct {
-	ID      string `json:"id"`
-	Object  string `json:"object"`
-	Created int64  `json:"created"`
-	Model   string `json:"model"`
+// Response represents the response from the LLM API
+type Response struct {
 	Choices []struct {
 		Message struct {
-			Role    string `json:"role"`
 			Content string `json:"content"`
 		} `json:"message"`
-		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
-	Usage struct {
-		PromptTokens     int `json:"prompt_tokens"`
-		CompletionTokens int `json:"completion_tokens"`
-		TotalTokens      int `json:"total_tokens"`
-	} `json:"usage"`
 }
 
 // llmCmd represents the llm command
 var llmCmd = &cobra.Command{
-	Use:   "llm [prompt]",
+	Use:   "llm",
 	Short: "Interact with the LLM",
-	Long: `Interact with the LLM to generate content.
-This command allows you to send prompts to the LLM and get responses.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		if len(args) == 0 {
-			runLLMInteractive()
-		} else {
-			runLLMWithPrompt(strings.Join(args, " "))
+	Long:  `Interact with the LLM to get help with your tasks`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		prompt, _ := cmd.Flags().GetString("prompt")
+		if prompt != "" {
+			return runLLMWithPrompt(ctx, prompt)
 		}
+		return runLLMInteractive(ctx)
 	},
 }
 
 func init() {
 	rootCmd.AddCommand(llmCmd)
+	llmCmd.Flags().String("prompt", "", "Single prompt to send to the LLM")
 }
 
 // runLLMInteractive starts an interactive session with the LLM
-func runLLMInteractive() {
-	// Load configuration
+func runLLMInteractive(ctx context.Context) error {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
-		return
+		logger.Error("Failed to load configuration: %v", err)
+		return err
 	}
 
-	// Check if LLM integration is configured
-	if cfg.BaseURL == "" || cfg.Model == "" || len(cfg.Headers) == 0 {
-		fmt.Println("LLM integration is not configured.")
-		fmt.Println("Run 'plannet init' to set up LLM integration.")
-		return
+	if cfg.BaseURL == "" || cfg.Model == "" {
+		logger.Error("LLM integration is not configured. Please run 'plannet init' first")
+		return fmt.Errorf("LLM integration not configured")
 	}
 
-	fmt.Println("Starting interactive session with the LLM.")
-	fmt.Println("Type 'exit' to end the session.")
-	fmt.Println("----------------------------------------")
+	logger.Info("Starting interactive session with LLM. Type 'exit' to quit.")
+	logger.Info("Type your message and press Enter:")
 
-	// Initialize conversation history
-	var messages []Message
-
-	// Add system prompt if available
-	if cfg.SystemPrompt != "" {
-		messages = append(messages, Message{
-			Role:    "system",
-			Content: cfg.SystemPrompt,
-		})
-	}
-
-	// Start interactive loop
-	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("You: ")
-		input, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Println("Error reading input:", err)
-			return
-		}
-		input = strings.TrimSpace(input)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			var input string
+			fmt.Print("> ")
+			fmt.Scanln(&input)
 
-		// Check for exit command
-		if input == "exit" {
-			break
-		}
+			if strings.ToLower(input) == "exit" {
+				return nil
+			}
 
-		// Add user message to history
-		messages = append(messages, Message{
-			Role:    "user",
-			Content: input,
-		})
+			response, err := sendLLMRequest(ctx, cfg, input)
+			if err != nil {
+				logger.Error("Failed to get response: %v", err)
+				continue
+			}
 
-		// Send request to LLM
-		response, err := sendLLMRequest(cfg, messages)
-		if err != nil {
-			fmt.Println("Error:", err)
-			continue
-		}
-
-		// Display response
-		if len(response.Choices) > 0 {
-			content := response.Choices[0].Message.Content
-			fmt.Println("LLM:", content)
-
-			// Add assistant message to history
-			messages = append(messages, Message{
-				Role:    "assistant",
-				Content: content,
-			})
-		} else {
-			fmt.Println("No response from LLM.")
+			logger.Info("LLM: %s", response)
 		}
 	}
 }
 
 // runLLMWithPrompt sends a single prompt to the LLM
-func runLLMWithPrompt(prompt string) {
-	// Load configuration
+func runLLMWithPrompt(ctx context.Context, prompt string) error {
 	cfg, err := config.Load()
 	if err != nil {
-		fmt.Println("Error loading configuration:", err)
-		fmt.Println("Run 'plannet init' to set up your configuration.")
-		return
+		logger.Error("Failed to load configuration: %v", err)
+		return err
 	}
 
-	// Check if LLM integration is configured
-	if cfg.BaseURL == "" || cfg.Model == "" || len(cfg.Headers) == 0 {
-		fmt.Println("LLM integration is not configured.")
-		fmt.Println("Run 'plannet init' to set up LLM integration.")
-		return
+	if cfg.BaseURL == "" || cfg.Model == "" {
+		logger.Error("LLM integration is not configured. Please run 'plannet init' first")
+		return fmt.Errorf("LLM integration not configured")
 	}
 
-	// Initialize messages
-	var messages []Message
-
-	// Add system prompt if available
-	if cfg.SystemPrompt != "" {
-		messages = append(messages, Message{
-			Role:    "system",
-			Content: cfg.SystemPrompt,
-		})
-	}
-
-	// Add user message
-	messages = append(messages, Message{
-		Role:    "user",
-		Content: prompt,
-	})
-
-	// Send request to LLM
-	response, err := sendLLMRequest(cfg, messages)
+	response, err := sendLLMRequest(ctx, cfg, prompt)
 	if err != nil {
-		fmt.Println("Error:", err)
-		return
+		logger.Error("Failed to get response: %v", err)
+		return err
 	}
 
-	// Display response
-	if len(response.Choices) > 0 {
-		fmt.Println(response.Choices[0].Message.Content)
-	} else {
-		fmt.Println("No response from LLM.")
-	}
+	logger.Info("LLM: %s", response)
+	return nil
 }
 
 // sendLLMRequest sends a request to the LLM API
-func sendLLMRequest(cfg *config.Config, messages []Message) (*LLMResponse, error) {
-	// Create request body
-	requestBody := LLMRequest{
-		Model:       cfg.Model,
-		Messages:    messages,
-		Temperature: 0.7,
-		MaxTokens:   1000,
-	}
-
-	// Convert to JSON
-	jsonBody, err := json.Marshal(requestBody)
+func sendLLMRequest(ctx context.Context, cfg *config.Config, prompt string) (string, error) {
+	token, err := config.GetLLMToken()
 	if err != nil {
-		return nil, fmt.Errorf("error creating request body: %w", err)
+		return "", fmt.Errorf("failed to get LLM token: %w", err)
 	}
 
-	// Get LLM token from secure storage
-	llmToken, err := config.GetLLMToken()
+	// Create rate limiter: 5 requests per minute
+	rateLimiter := security.NewHTTPRateLimiter(5, time.Minute)
+	baseClient := &http.Client{}
+	client := rateLimiter.WrapHTTPClient(baseClient, "llm")
+
+	messages := []Message{
+		{
+			Role:    "user",
+			Content: prompt,
+		},
+	}
+
+	requestBody, err := json.Marshal(map[string]interface{}{
+		"model":    cfg.Model,
+		"messages": messages,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("error getting LLM token: %w", err)
+		return "", fmt.Errorf("failed to marshal request body: %w", err)
 	}
 
-	// Create HTTP client with rate limiting
-	rateLimiter := security.NewHTTPRateLimiter(5, time.Minute) // 5 requests per minute
-	client := rateLimiter.WrapHTTPClient(&http.Client{}, "llm")
-
-	// Create request
-	req, err := http.NewRequest("POST", cfg.BaseURL, bytes.NewBuffer(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, "POST", cfg.BaseURL, bytes.NewReader(requestBody))
 	if err != nil {
-		return nil, fmt.Errorf("error creating request: %w", err)
+		return "", fmt.Errorf("failed to create request: %w", err)
 	}
 
-	// Set headers
-	for key, value := range cfg.Headers {
-		req.Header.Set(key, value)
-	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+llmToken)
+	req.Header.Set("Authorization", "Bearer "+token)
 
-	// Send request
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("error sending request: %w", err)
+		return "", fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	// Check response status
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("LLM API returned status %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("API request failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Parse response
-	var response LLMResponse
+	var response Response
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("error parsing response: %w", err)
+		return "", fmt.Errorf("failed to decode response: %w", err)
 	}
 
-	return &response, nil
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("no response from LLM")
+	}
+
+	return response.Choices[0].Message.Content, nil
 }
