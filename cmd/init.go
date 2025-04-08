@@ -201,11 +201,8 @@ func runInit() {
 				return
 			}
 
-			// Store the API key securely
-			if err := config.SetLLMToken(apiKey); err != nil {
-				fmt.Println("Error storing API key:", err)
-				return
-			}
+			// Store the API key in the config
+			cfg.LLMToken = apiKey
 
 			// Set up headers with API key
 			cfg.Headers = map[string]string{
@@ -262,11 +259,8 @@ func runInit() {
 				return
 			}
 
-			// Store the API key securely
-			if err := config.SetLLMToken(apiKey); err != nil {
-				fmt.Println("Error storing API key:", err)
-				return
-			}
+			// Store the API key in the config
+			cfg.LLMToken = apiKey
 
 			// Set up headers with API key
 			cfg.Headers = map[string]string{
@@ -364,11 +358,8 @@ func runInit() {
 			return
 		}
 
-		// Store the Jira token securely
-		if err := config.SetJiraToken(jiraToken); err != nil {
-			fmt.Println("Error storing Jira token:", err)
-			return
-		}
+		// Store the Jira token in the config
+		cfg.JiraToken = jiraToken
 	}
 
 	// Save the configuration

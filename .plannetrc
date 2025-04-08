@@ -1,9 +1,0 @@
-{
-    "base_url": "http://localhost:8080/v1/query",
-        "headers": {
-        "Authorization": "Bearer test-token-123"
-    }
-}
-
-
-

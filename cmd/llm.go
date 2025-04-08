@@ -64,6 +64,13 @@ func runLLMInteractive(ctx context.Context) error {
 		return fmt.Errorf("LLM integration not configured")
 	}
 
+	// Get LLM token from config
+	token := cfg.LLMToken
+	if token == "" {
+		fmt.Println("Error: LLM token not found. Please run 'plannet init' to set up LLM integration.")
+		return fmt.Errorf("LLM token not found")
+	}
+
 	logger.Info("Starting interactive session with LLM. Type 'exit' to quit.")
 	logger.Info("Type your message and press Enter:")
 
@@ -104,6 +111,13 @@ func runLLMWithPrompt(ctx context.Context, prompt string) error {
 		return fmt.Errorf("LLM integration not configured")
 	}
 
+	// Get LLM token from config
+	token := cfg.LLMToken
+	if token == "" {
+		fmt.Println("Error: LLM token not found. Please run 'plannet init' to set up LLM integration.")
+		return fmt.Errorf("LLM token not found")
+	}
+
 	response, err := sendLLMRequest(ctx, cfg, prompt)
 	if err != nil {
 		logger.Error("Failed to get response: %v", err)
@@ -116,9 +130,11 @@ func runLLMWithPrompt(ctx context.Context, prompt string) error {
 
 // sendLLMRequest sends a request to the LLM API
 func sendLLMRequest(ctx context.Context, cfg *config.Config, prompt string) (string, error) {
-	token, err := config.GetLLMToken()
-	if err != nil {
-		return "", fmt.Errorf("failed to get LLM token: %w", err)
+	// Get LLM token from config
+	token := cfg.LLMToken
+	if token == "" {
+		fmt.Println("Error: LLM token not found. Please run 'plannet init' to set up LLM integration.")
+		return "", fmt.Errorf("LLM token not found")
 	}
 
 	// Create rate limiter: 5 requests per minute

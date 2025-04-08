@@ -9,6 +9,8 @@ import (
 
 // SanitizeFilePath sanitizes a file path to prevent path traversal attacks
 func SanitizeFilePath(baseDir, filePath string) (string, error) {
+	fmt.Printf("Debug: Input baseDir=%s, filePath=%s\n", baseDir, filePath)
+
 	// Check if the file path is empty
 	if filePath == "" {
 		return "", fmt.Errorf("file path cannot be empty")
@@ -19,15 +21,41 @@ func SanitizeFilePath(baseDir, filePath string) (string, error) {
 		return "", fmt.Errorf("file path contains forbidden path traversal pattern")
 	}
 
-	// Resolve the absolute path
+	// Resolve the absolute paths and any symbolic links
+	resolvedBase, err := filepath.EvalSymlinks(baseDir)
+	if err != nil {
+		fmt.Printf("Debug: Error resolving base directory: %v\n", err)
+		resolvedBase = baseDir // Fallback to unresolved path
+	}
+	fmt.Printf("Debug: Resolved base directory: %s\n", resolvedBase)
+
 	absPath, err := filepath.Abs(filepath.Join(baseDir, filePath))
 	if err != nil {
 		return "", fmt.Errorf("error resolving absolute path: %w", err)
 	}
+	fmt.Printf("Debug: Absolute path: %s\n", absPath)
+
+	resolvedPath, err := filepath.EvalSymlinks(filepath.Dir(absPath))
+	if err != nil && !os.IsNotExist(err) {
+		fmt.Printf("Debug: Error resolving path: %v\n", err)
+		resolvedPath = filepath.Dir(absPath) // Fallback to unresolved path
+	}
+	fmt.Printf("Debug: Resolved path: %s\n", resolvedPath)
+
+	// If the file doesn't exist yet, check its parent directory
+	if os.IsNotExist(err) {
+		resolvedPath = filepath.Dir(resolvedPath)
+		fmt.Printf("Debug: Using parent directory: %s\n", resolvedPath)
+	}
+
+	// Clean both paths for comparison
+	resolvedBase = filepath.Clean(resolvedBase)
+	resolvedPath = filepath.Clean(resolvedPath)
+	fmt.Printf("Debug: Cleaned paths - base=%s, path=%s\n", resolvedBase, resolvedPath)
 
 	// Check if the resolved path is within the base directory
-	if !strings.HasPrefix(absPath, baseDir) {
-		return "", fmt.Errorf("file path is outside the base directory")
+	if !strings.HasPrefix(resolvedPath, resolvedBase) {
+		return "", fmt.Errorf("file path is outside the base directory (base=%s, path=%s)", resolvedBase, resolvedPath)
 	}
 
 	return absPath, nil

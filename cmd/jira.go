@@ -101,10 +101,10 @@ func runJiraList(ctx context.Context) {
 		return
 	}
 
-	// Get Jira token from secure storage
-	jiraToken, err := config.GetJiraToken()
-	if err != nil {
-		log.Error("Failed to get Jira token: %v", err)
+	// Get Jira token from config
+	token := cfg.JiraToken
+	if token == "" {
+		fmt.Println("Error: Jira token not found. Please run 'plannet init' to set up Jira integration.")
 		return
 	}
 
@@ -121,7 +121,7 @@ func runJiraList(ctx context.Context) {
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+jiraToken)
+	req.Header.Set("Authorization", "Basic "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
@@ -186,10 +186,10 @@ func runJiraView(ctx context.Context, ticketKey string) {
 		return
 	}
 
-	// Get Jira token from secure storage
-	jiraToken, err := config.GetJiraToken()
-	if err != nil {
-		log.Error("Failed to get Jira token: %v", err)
+	// Get Jira token from config
+	token := cfg.JiraToken
+	if token == "" {
+		fmt.Println("Error: Jira token not found. Please run 'plannet init' to set up Jira integration.")
 		return
 	}
 
@@ -206,7 +206,7 @@ func runJiraView(ctx context.Context, ticketKey string) {
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+jiraToken)
+	req.Header.Set("Authorization", "Basic "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request
@@ -262,10 +262,10 @@ func runJiraCreate(ctx context.Context) {
 		return
 	}
 
-	// Get Jira token from secure storage
-	jiraToken, err := config.GetJiraToken()
-	if err != nil {
-		log.Error("Failed to get Jira token: %v", err)
+	// Get Jira token from config
+	token := cfg.JiraToken
+	if token == "" {
+		fmt.Println("Error: Jira token not found. Please run 'plannet init' to set up Jira integration.")
 		return
 	}
 
@@ -365,7 +365,7 @@ func runJiraCreate(ctx context.Context) {
 	}
 
 	// Set headers
-	req.Header.Set("Authorization", "Basic "+jiraToken)
+	req.Header.Set("Authorization", "Basic "+token)
 	req.Header.Set("Content-Type", "application/json")
 
 	// Send request

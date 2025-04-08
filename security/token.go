@@ -32,7 +32,7 @@ func NewTokenStorage() (*TokenStorage, error) {
 	}
 
 	// Define the path for the key file
-	keyFile := filepath.Join(homeDir, ".plannet_key")
+	keyFile := filepath.Join(homeDir, ".plannetrc")
 
 	// Check if key file exists, if not create it
 	if _, err := os.Stat(keyFile); os.IsNotExist(err) {
@@ -53,7 +53,7 @@ func NewTokenStorage() (*TokenStorage, error) {
 	}, nil
 }
 
-// StoreToken securely stores a token
+// StoreToken securely stores a token in the config file
 func (ts *TokenStorage) StoreToken(key, token string) error {
 	// Read the encryption key
 	encryptionKey, err := os.ReadFile(ts.keyFile)
@@ -91,71 +91,90 @@ func (ts *TokenStorage) StoreToken(key, token string) error {
 		return fmt.Errorf("error finding home directory: %w", err)
 	}
 
-	// Define the path for the token file
-	tokenFile := filepath.Join(homeDir, ".plannet_tokens")
+	// Define the path for the config file
+	configPath := filepath.Join(homeDir, ".plannetrc")
 
-	// Read existing tokens
-	tokens := make(map[string]string)
-	if _, err := os.Stat(tokenFile); err == nil {
-		data, err := os.ReadFile(tokenFile)
-		if err != nil {
-			return fmt.Errorf("error reading token file: %w", err)
-		}
-
-		if err := json.Unmarshal(data, &tokens); err != nil {
-			return fmt.Errorf("error parsing token file: %w", err)
-		}
-	}
-
-	// Add the new token
-	tokens[key] = encodedToken
-
-	// Write the tokens back to the file
-	data, err := json.MarshalIndent(tokens, "", "  ")
+	// Read the config file
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
-		return fmt.Errorf("error marshaling tokens: %w", err)
+		return fmt.Errorf("error reading config file: %w", err)
 	}
 
-	if err := os.WriteFile(tokenFile, data, 0600); err != nil {
-		return fmt.Errorf("error writing token file: %w", err)
+	// Parse the config
+	var config map[string]interface{}
+	if err := json.Unmarshal(configData, &config); err != nil {
+		return fmt.Errorf("error parsing config file: %w", err)
+	}
+
+	// Store the token in the config based on the key
+	switch key {
+	case "llm":
+		config["llm_token"] = encodedToken
+	case "jira":
+		config["jira_token"] = encodedToken
+	default:
+		return fmt.Errorf("unknown token key: %s", key)
+	}
+
+	// Write the config back to the file
+	updatedConfig, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(configPath, updatedConfig, 0644); err != nil {
+		return fmt.Errorf("error writing config file: %w", err)
 	}
 
 	return nil
 }
 
-// GetToken retrieves a stored token
+// GetToken retrieves a stored token from the config file
 func (ts *TokenStorage) GetToken(key string) (string, error) {
-	// Read the encryption key
-	encryptionKey, err := os.ReadFile(ts.keyFile)
-	if err != nil {
-		return "", fmt.Errorf("error reading encryption key: %w", err)
-	}
-
 	// Get user's home directory
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("error finding home directory: %w", err)
 	}
 
-	// Define the path for the token file
-	tokenFile := filepath.Join(homeDir, ".plannet_tokens")
+	// Define the path for the config file
+	configPath := filepath.Join(homeDir, ".plannetrc")
 
-	// Read the token file
-	data, err := os.ReadFile(tokenFile)
+	// Read the config file
+	configData, err := os.ReadFile(configPath)
 	if err != nil {
-		return "", fmt.Errorf("error reading token file: %w", err)
+		return "", fmt.Errorf("error reading config file: %w", err)
 	}
 
-	// Parse the tokens
-	var tokens map[string]string
-	if err := json.Unmarshal(data, &tokens); err != nil {
-		return "", fmt.Errorf("error parsing token file: %w", err)
+	// Parse the config
+	var config map[string]interface{}
+	if err := json.Unmarshal(configData, &config); err != nil {
+		return "", fmt.Errorf("error parsing config file: %w", err)
 	}
 
-	// Get the token
-	encodedToken, ok := tokens[key]
-	if !ok {
+	// Get the token from the config based on the key
+	var encodedToken string
+	switch key {
+	case "llm":
+		if token, ok := config["llm_token"].(string); ok {
+			encodedToken = token
+		}
+	case "jira":
+		if token, ok := config["jira_token"].(string); ok {
+			encodedToken = token
+		}
+	default:
+		return "", fmt.Errorf("unknown token key: %s", key)
+	}
+
+	if encodedToken == "" {
 		return "", fmt.Errorf("token not found for key: %s", key)
+	}
+
+	// Read the encryption key
+	encryptionKey, err := os.ReadFile(ts.keyFile)
+	if err != nil {
+		return "", fmt.Errorf("error reading encryption key: %w", err)
 	}
 
 	// Decode the base64 token
