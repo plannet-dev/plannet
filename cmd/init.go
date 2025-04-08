@@ -182,11 +182,14 @@ func runInit() {
 			cfg.Model = "plannet-default"
 
 			fmt.Println("\nTo use Plannet's LLM, you need an API key.")
-			fmt.Println("Visit https://plannet.dev/console to get your API key.")
+			fmt.Println("1. Visit https://plannet.dev/dashboard to set up your account")
+			fmt.Println("2. Navigate to the API Keys section")
+			fmt.Println("3. Create a new API key for brain.plannet.dev")
+			fmt.Println("4. Copy the key and paste it below")
 
 			apiKeyPrompt := promptui.Prompt{
-				Label: "Enter your Plannet API key",
-				Mask:  '*',
+				Label: "Plannet API Key",
+				Mask:  '•',
 				Validate: func(input string) error {
 					return security.ValidateAPIKey(input)
 				},
@@ -301,8 +304,11 @@ func runInit() {
 
 	if jiraResult == "Yes" {
 		// Ask for Jira URL
+		fmt.Println("\nPlease enter your Jira instance URL.")
+		fmt.Println("Example: https://your-company.atlassian.net")
+
 		jiraURLPrompt := promptui.Prompt{
-			Label:   "Enter your Jira instance URL",
+			Label:   "Jira URL",
 			Default: "https://your-instance.atlassian.net",
 			Validate: func(input string) error {
 				return security.ValidateURL(input)
@@ -317,8 +323,10 @@ func runInit() {
 		cfg.JiraURL = jiraURL
 
 		// Ask for Jira username/email
+		fmt.Println("\nPlease enter your Jira username or email address.")
+
 		jiraUserPrompt := promptui.Prompt{
-			Label: "Enter your Jira username/email",
+			Label: "Jira Username/Email",
 			Validate: func(input string) error {
 				if input == "" {
 					return fmt.Errorf("username cannot be empty")
@@ -336,11 +344,15 @@ func runInit() {
 
 		// Ask for Jira API token
 		fmt.Println("\nTo use Jira, you need an API token.")
-		fmt.Println("Visit https://id.atlassian.com/manage-profile/security/api-tokens to create one.")
+		fmt.Println("1. Visit https://id.atlassian.com/manage-profile/security/api-tokens")
+		fmt.Println("2. Click 'Create API token'")
+		fmt.Println("3. Give it a name (e.g., 'Plannet')")
+		fmt.Println("4. Copy the token and paste it below")
+		fmt.Println("\nNote: The token will be securely stored and masked when displayed.")
 
 		jiraTokenPrompt := promptui.Prompt{
-			Label: "Enter your Jira API token",
-			Mask:  '*',
+			Label: "Jira API Token",
+			Mask:  '•',
 			Validate: func(input string) error {
 				return security.ValidateAPIKey(input)
 			},
