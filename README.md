@@ -20,6 +20,45 @@ You can bring your own LLM, or use ours at https://www.plannet.dev/
 - A Jira account (optional)
 - Access to an LLM API endpoint
 
+### Quick Install
+
+```bash
+# Download the latest release for your platform
+# For macOS (Intel):
+curl -L https://github.com/plannet-dev/plannet/releases/latest/download/plannet-darwin-amd64 -o plannet
+# For macOS (Apple Silicon):
+curl -L https://github.com/plannet-dev/plannet/releases/latest/download/plannet-darwin-arm64 -o plannet
+# For Linux:
+curl -L https://github.com/plannet-dev/plannet/releases/latest/download/plannet-linux-amd64 -o plannet
+# For Windows:
+curl -L https://github.com/plannet-dev/plannet/releases/latest/download/plannet-windows-amd64.exe -o plannet.exe
+
+# Add to PATH based on your operating system:
+
+# For macOS/Linux:
+# Option 1: Move to /usr/local/bin (recommended)
+sudo mv plannet /usr/local/bin/
+
+# Option 2: Add to PATH in your shell configuration
+# For bash/zsh (add to ~/.bashrc or ~/.zshrc):
+export PATH=$PATH:$(pwd)
+# For fish (add to ~/.config/fish/config.fish):
+set -gx PATH $PATH (pwd)
+
+# For Windows:
+# Option 1: Move to a directory in your PATH (e.g., C:\Windows)
+move plannet.exe C:\Windows\
+
+# Option 2: Add directory to PATH
+# 1. Open System Properties > Advanced > Environment Variables
+# 2. Under "User variables", find and select "Path"
+# 3. Click "Edit" and add the directory containing plannet.exe
+# 4. Click "OK" to save
+
+# Verify installation
+plannet --version
+```
+
 ### Building from Source
 
 ```bash
