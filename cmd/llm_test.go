@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/plannet-ai/plannet/config"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // llmTestConfig is used to create a test configuration
@@ -90,7 +94,6 @@ func makeLLMRequest(cfg *llmTestConfig, prompt string) (string, error) {
 		return "", fmt.Errorf("failed to parse LLM API response: %w", err)
 	}
 
-	// Check if we have a response
 	if len(result.Choices) == 0 {
 		return "", fmt.Errorf("no response from LLM API")
 	}
@@ -388,4 +391,84 @@ func TestLLMResponseParsing(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLLMCommand(t *testing.T) {
+	// Create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "plannet-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// Create a test config file
+	configPath := filepath.Join(tempDir, ".plannetrc")
+	config.SetConfigPath(configPath)
+
+	// Create a test config
+	testConfig := &config.Config{
+		BaseURL:      "http://test-api.example.com",
+		Model:        "test-model",
+		SystemPrompt: "You are a helpful assistant",
+		LLMToken:     "test-token",
+		Headers: map[string]string{
+			"Authorization": "Bearer test-token",
+		},
+	}
+
+	// Save the test config
+	err = config.Save(testConfig)
+	require.NoError(t, err)
+
+	// Create a test server
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Verify request headers
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+
+		// Parse request body
+		var requestBody map[string]interface{}
+		err := json.NewDecoder(r.Body).Decode(&requestBody)
+		require.NoError(t, err)
+
+		// Verify request body
+		assert.Equal(t, "test-model", requestBody["model"])
+		messages := requestBody["messages"].([]interface{})
+		assert.Len(t, messages, 2)
+		assert.Equal(t, "system", messages[0].(map[string]interface{})["role"])
+		assert.Equal(t, "You are a helpful assistant", messages[0].(map[string]interface{})["content"])
+		assert.Equal(t, "user", messages[1].(map[string]interface{})["role"])
+		assert.Equal(t, "test prompt", messages[1].(map[string]interface{})["content"])
+
+		// Send response
+		response := map[string]interface{}{
+			"choices": []map[string]interface{}{
+				{
+					"message": map[string]interface{}{
+						"content": "test response",
+					},
+				},
+			},
+		}
+		json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	// Override the base URL for testing
+	testConfig.BaseURL = server.URL
+
+	// Create test config
+	cfg := &llmTestConfig{
+		Config: testConfig,
+	}
+
+	// Test with valid token
+	response, err := makeLLMRequest(cfg, "test prompt")
+	assert.NoError(t, err)
+	assert.Equal(t, "test response", response)
+
+	// Test with empty token
+	cfg.Config.LLMToken = ""
+	cfg.Config.Headers["Authorization"] = ""
+	_, err = makeLLMRequest(cfg, "test prompt")
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "LLM API returned status")
 }

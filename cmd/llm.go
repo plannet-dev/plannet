@@ -133,7 +133,6 @@ func sendLLMRequest(ctx context.Context, cfg *config.Config, prompt string) (str
 	// Get LLM token from config
 	token := cfg.LLMToken
 	if token == "" {
-		fmt.Println("Error: LLM token not found. Please run 'plannet init' to set up LLM integration.")
 		return "", fmt.Errorf("LLM token not found")
 	}
 
